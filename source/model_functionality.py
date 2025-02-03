@@ -57,8 +57,8 @@ def init_weights(
     weights : Array
         An array containing the initialized weights. Shape of array depends on q_base.
 
-    k_d : int
-        Degree in the equation: m_order = q_base^(k_d).
+    kd : int
+        Degree in the equation: m_order = q_base^(kd).
 
     Raises
     ------
@@ -68,25 +68,14 @@ def init_weights(
 
     if (m_order & (m_order - 1)) and q_base:
         raise ValueError(f"m_order should be a power of 2, but it is {m_order}. ")
-    #key = jrand.key(seed if seed else np.random.randint(0, 10000))
-    #if q_base:
-    #    k_d = int(np.emath.logn(q_base, m_order)) # m_order = q_base^(k_d) 
-    #    weights = jrand.normal(key, (int(d_dim*k_d), q_base, rank), dtype=dtype)
-    #else:
-    #    weights, k_d = jrand.normal(key, (d_dim, m_order, rank)), 1
-    
-    # check
     random_state = np.random if seed is None else np.random.RandomState(seed)
     if q_base:
-        k_d = int(np.emath.logn(q_base, m_order)) # m_order = q_base^(k_d) 
-        weights = random_state.randn(d_dim*k_d, q_base, rank)
+        kd = int(np.emath.logn(q_base, m_order)) # m_order = q_base^(kd) 
+        weights = random_state.randn(d_dim*kd, q_base, rank)
     else:
-        k_d = 1
+        kd = 1
         weights = random_state.randn(d_dim, m_order, rank)
     weights = jnp.array(weights)
-    #check
-    
-
     naxis = weights.ndim - 2
     if init_type == 'k_mtx': # Matrix weights[k][:, :] is normalized
         weights /= jnp.linalg.norm(weights, ord=2, axis=(naxis, naxis + 1), keepdims=True)
@@ -96,10 +85,10 @@ def init_weights(
         pass
     else:
         raise ValueError(f'Bad init_type = {init_type}. See docs.')
-    return weights.astype(dtype), k_d
+    return weights.astype(dtype), kd
 
 @partial(jit, static_argnums=(3,))
-def get_fw_hadamard_mtx(x: ArrayLike, k_d: int, weights: ArrayLike, fmap: FeatureMap) -> Array:
+def get_fw_hadamard_mtx(x: ArrayLike, kd: int, weights: ArrayLike, fmap: FeatureMap) -> Array:
     """ 
     Calculate the Hadamard product of matrix multiplication between features and CPD cores.
 
@@ -108,8 +97,8 @@ def get_fw_hadamard_mtx(x: ArrayLike, k_d: int, weights: ArrayLike, fmap: Featur
     x : ArrayLike
         Input training data: (n_samples, d_dim).
     
-    k_d : int
-        Degree in the equation: m_order = q_base^(k_d).
+    kd : int
+        Degree in the equation: m_order = q_base^(kd).
 
     weights : ArrayLike
         An array containing the initialized weights in CPD format.
@@ -125,10 +114,11 @@ def get_fw_hadamard_mtx(x: ArrayLike, k_d: int, weights: ArrayLike, fmap: Featur
 
     fw_hadamard = jnp.ones((x.shape[0], weights.shape[-1]), dtype=weights.dtype)
     for ind, wk in enumerate(weights):
-        k, q = divmod(ind, k_d) # q starts from zero -> for fmap
+        k, q = divmod(ind, kd) # q starts from zero -> for fmap
         fw_hadamard *= fmap(x[:, k], q).dot(wk)
     return fw_hadamard
 
+@jit
 def get_ww_hadamard_mtx(weights: ArrayLike) -> Array:
     """ 
     Calculate the Hadamard product of matrix multiplication between corresponding CPD cores.
@@ -152,7 +142,7 @@ def get_ww_hadamard_mtx(weights: ArrayLike) -> Array:
         ww_hadamard *= wk.T.conj().dot(wk)
     return ww_hadamard
 
-#???@jit
+@jit
 def _prepare_system(
     fk_mtx: ArrayLike, 
     fw_hadamard: ArrayLike,
@@ -161,7 +151,7 @@ def _prepare_system(
     Fk = khatri_rao_row(fw_hadamard, fk_mtx) # Fortran Ordering
     return Fk.T.conj().dot(Fk), Fk.T.conj().dot(y)
 
-#???@jit
+@partial(jit, static_argnums=(5, 6))
 def get_updated_als_factor(
     fk_mtx: ArrayLike, 
     fw_hadamard: ArrayLike,
@@ -206,12 +196,12 @@ def get_updated_als_factor(
     sol = jnp.linalg.pinv(A).dot(b) if pinv else jnp.linalg.solve(A, b)
     return sol.reshape(f_dim, rank, order='F') # Fortran Ordering
 
-#???@partial(jit, static_argnums=(5,))
+@partial(jit, static_argnums=(5, 8, 9))
 def update_weights(
     x: ArrayLike, 
     y: ArrayLike,
     alpha: float,
-    k_d: int,
+    kd: int,
     weights: ArrayLike,
     fmap: FeatureMap,
     fw_hadamard: ArrayLike,
@@ -224,7 +214,7 @@ def update_weights(
     """
     for ind in range(weights.shape[0]):
         # Preprocess:
-        k, q = divmod(ind, k_d) # q starts from zero -> for fmap
+        k, q = divmod(ind, kd) # q starts from zero -> for fmap
         wk, fk_mtx = weights[ind], fmap(x[:, k], q)
         fw_hadamard /= fk_mtx.dot(wk) 
         ww_hadamard /= wk.T.conj().dot(wk) 
@@ -239,7 +229,7 @@ def update_weights(
 @partial(jit, static_argnums=(3,))
 def predict_score(
     x: ArrayLike, 
-    k_d: int, 
+    kd: int, 
     weights: ArrayLike, 
     fmap: FeatureMap
 ) -> Array:
@@ -249,7 +239,7 @@ def predict_score(
     n_samples, rank = x.shape[0], weights.shape[-1]
     score = jnp.ones((n_samples, rank), dtype=weights.dtype)
     for ind, wk in enumerate(weights):
-        k, q = divmod(ind, k_d) # q starts from zero -> for fmap
+        k, q = divmod(ind, kd) # q starts from zero -> for fmap
         score *= fmap(x[:, k], q).dot(wk)
     return jnp.real(jnp.sum(score, 1))
 
@@ -257,7 +247,7 @@ def run_callback(
     x: ArrayLike, 
     y: ArrayLike, 
     alpha: float, 
-    k_d: int, 
+    kd: int, 
     weights: ArrayLike,  
     fmap: FeatureMap, 
     xy_test: Optional[tuple] = None,
@@ -270,7 +260,7 @@ def run_callback(
         y_yp = None
         if xy_test:
             x_test, y_test = xy_test
-            y_pred_test = predict_score(x_test, k_d, weights, fmap)
+            y_pred_test = predict_score(x_test, kd, weights, fmap)
             y_yp = y_test, y_pred_test
-        y_pred = predict_score(x, k_d, weights, fmap)
+        y_pred = predict_score(x, kd, weights, fmap)
         callback(dict(y=y, y_pred=y_pred, weights=weights, alpha=alpha, y_yp=y_yp))
