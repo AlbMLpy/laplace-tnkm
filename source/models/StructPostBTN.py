@@ -15,26 +15,35 @@ class StructPostBTN(MeanFieldBTN):
     def __init__(
         self, 
         rank: int = 1, 
-        m_rank: int = 1, 
         fmap: Feature = PPFeature(), 
         m_order: int = 2,
         n_epoch: int = 1, 
-        std_err: float = 0.01,
-        std_w: float = 0.01,
-        n_loss_samples: int = 30, 
+        beta_e: Optional[float] = 1e2,
+        beta_w: Optional[float] = 1e2,
         seed: Optional[int] = None,
-        opt_params: dict = {'train_mode': 'GD', 'lr': 1e-3}
+        opt_params: dict = {'train_mode': 'GD', 'lr': 1e-3},
+        n_epoch_global: int = 3, ### Not clear ###
+        pred_dist_n_samples: int = 5, ### Not clear ###
+        beta_e_n_samples: int = 3, ### Not clear ###
+        n_loss_samples: int = 30, ### Not clear ###
+        kl_closed_form: bool = True, ### Not clear ###
+        m_rank: int = 1, 
     ):
         super().__init__(
             rank, fmap, m_order, n_epoch, 
-            std_err, std_w, n_loss_samples, seed, opt_params,
+            beta_e, beta_w, seed, opt_params,
+            n_epoch_global, pred_dist_n_samples, 
+            beta_e_n_samples, n_loss_samples, kl_closed_form
         )
         self.m_rank = m_rank
         
         self.mode_names = ['d', 'I', 'R'] # data_dim, local feature dim, CPD rank;
-        self.w_types = ['m', 'p'] # Mean parameters, std related parameters;
+        self.w_types = ['m', 'p'] # Mean, std related parameters;
         self.p_ids = [(wt, fn) for wt, fn in product(self.w_types, self.mode_names)]
-        self._loss = l2_reg_loss_sp_closed_form_kl
+        if kl_closed_form:
+            self._loss = l2_reg_loss_sp_closed_form_kl 
+        else:
+            raise NotImplementedError(f'kl_closed_form = {kl_closed_form}.')
 
     def _init_fit(self):
         grad_f, params, loss_f = {}, {}, self._loss
