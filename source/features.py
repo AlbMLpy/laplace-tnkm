@@ -92,3 +92,32 @@ def ff_q2(
             jnp.exp(1j * jnp.pi * (-x * m_order / k_d + 2*x*(2**(q))) / p_scale)[:, None]
         ),
     )
+
+def prepare_fmap(
+    fmap_spec: Feature, 
+    m_order: int, 
+    is_quant: bool,
+):
+    if is_quant:
+        if fmap_spec.name == 'ppf':
+            return ppf_q2, jnp.float64
+        elif fmap_spec.name == 'ff':
+            fmap = partial(
+                ff_q2, m_order=m_order, 
+                k_d=int(jnp.log2(m_order)), 
+                p_scale=fmap_spec.p_scale,
+            )
+            return fmap, jnp.complex128
+        else:
+            raise ValueError(f'Bad feature_map = "{fmap_spec}". See docs.')
+    else:
+        if fmap_spec.name == 'ppf':
+            return partial(pure_poli_features, order=m_order), jnp.float64
+        elif fmap_spec.name == 'rbff':
+            fmap = partial(
+                gaussian_kernel_features, order=m_order, 
+                lscale=fmap_spec.l_scale, 
+            )
+            return fmap, jnp.float64
+        else:
+            raise ValueError(f'Bad feature_map = "{fmap_spec}". See docs.')
