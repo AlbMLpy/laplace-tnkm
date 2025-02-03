@@ -9,7 +9,7 @@ from jax import random as jrand
 import numpy as np
 
 from .features import FeatureMap
-from .matrix_operations import khatri_rao_row
+from .matrix_operations import khatri_rao_row, block_diag_jax
 
 def init_weights(
     m_order: int, 
@@ -225,6 +225,33 @@ def update_weights(
         fw_hadamard *= fk_mtx.dot(wk)
         ww_hadamard *= wk.T.conj().dot(wk)
     return weights, fw_hadamard, ww_hadamard
+
+@partial(jit, static_argnums=(4,))
+def cov_block_diag(
+    x: ArrayLike, 
+    alpha: float,
+    kd: int,
+    weights: ArrayLike,
+    fmap: FeatureMap,
+):
+    fw_hadamard = get_fw_hadamard_mtx(x, kd, weights, fmap) ### Not effective ###
+    d, I, R = weights.shape
+    blocks, blocks_l = [], []
+    for ind in range(d):
+        k, q = divmod(ind, kd) # q starts from zero -> for fmap
+        wk, fk_mtx = weights[ind], fmap(x[:, k], q)
+        fw_hadamard /= fk_mtx.dot(wk) 
+        Fk = khatri_rao_row(fw_hadamard, fk_mtx)
+        block_inv = jnp.linalg.pinv(
+            Fk.T.dot(Fk) 
+            + alpha*jnp.eye(I*R, I*R)
+        )
+        blocks.append(block_inv)
+        blocks_l.append(jnp.linalg.cholesky(block_inv))
+        fw_hadamard *= fk_mtx.dot(wk)
+    hw = block_diag_jax(blocks)
+    L = block_diag_jax(blocks_l)
+    return hw, L
 
 @partial(jit, static_argnums=(3,))
 def predict_score(
