@@ -9,7 +9,11 @@ from ..cpr import cpr
 from ..optimization import gd_update
 from ..features import Feature, PPFeature
 from ..models.AbstractBTN import AbstractBTN
-from ..model_functionality import predict_score, init_weights
+from ..model_functionality import (
+    init_weights,
+    predict_score,
+    cov_block_diag,
+)
 
 class LaplaceBTN(AbstractBTN):
     def __init__(
@@ -18,36 +22,57 @@ class LaplaceBTN(AbstractBTN):
         fmap: Feature = PPFeature(), 
         m_order: int = 2,
         n_epoch: int = 1, 
-        std_err: float = 0.01,
-        std_w: float = 1,
+        beta_e: Optional[float] = 1e2,
+        beta_w: Optional[float] = 1e2,
         seed: Optional[int] = None,
-        opt_params: dict = {'train_mode': 'ALS'}
+        opt_params: dict = {'train_mode': 'ALS'},
+        n_epoch_global: int = 3, ### Not clear ###
+        pred_dist_n_samples: int = 5, ### Not clear ###
+        beta_e_n_samples: int = 3, ### Not clear ###
+        block_cov: bool = False, 
     ):
         super().__init__(
             rank, fmap, m_order, n_epoch, 
-            std_err, std_w, seed, opt_params,
+            beta_e, beta_w, seed, opt_params,
+            n_epoch_global, pred_dist_n_samples, 
+            beta_e_n_samples,
         )
         
         self.init_type = None
-        self.alpha = (self.std_err / self.std_w)**2
+        self.alpha = self.beta_w / self.beta_e
         self.ww_reg = False
-        self.pd_nsamples = 10 ######################## Need to change later on! ########################
-    
-    def _cov(self, other_params):
-        hess_f = jit(jacrev(jacrev(l2_reg_loss, argnums=0), argnums=0), static_argnums=(4,))
-        hw = hess_f(self.w_mean, *other_params).reshape((np.prod(self.w_shape),)*2)
-        hw = jnp.linalg.inv(hw)
-        L = jnp.linalg.cholesky(hw) ############ Not Sure about this! ############
-        return hw, L
+        self._loss = l2_reg_loss 
+        self.block_cov = block_cov
 
     def fit(self, X, y, xy_test: Optional[tuple] = None):
         X, y = check_X_y(X, y)
-        self._fmap = self._prepare_fmap()
         X, y = jnp.array(X), jnp.array(y)
         self.w_shape = (X.shape[-1], self.m_order, self.rank)
-        # MAP estimation:
+        self.loss_list = []
+        # Global training loop:
+        for _ in range(self.n_epoch_global):
+            self._update_w(X, y, xy_test)
+            if not self.upd_beta_e and not self.upd_beta_w:
+                break
+            if self.upd_beta_w:
+                self._update_beta_w()
+            if self.upd_beta_e:
+                self._update_beta_e(X, y)
+            self.alpha = self.beta_w / self.beta_e
+        self.is_fitted_ = True
+        return self
+    
+    def _w_sample(self, w_mean_vec):
+        e_normal = jnp.array(np.random.randn(w_mean_vec.size)) # Need to change later on! #
+        w_sample = w_mean_vec + self.L.dot(e_normal)
+        return w_sample
+    
+    def _linearized(self, g):
+        return jnp.sqrt((g * g.dot(self.w_cov)).sum(axis=1))
+    
+    def _update_w(self, X, y, xy_test):
         if self.opt_params['train_mode'] == 'ALS':
-            pinv = X.shape[-1] == 1
+            pinv = self.w_shape[0] == 1
             self.w_mean, self.kd = cpr(
                 X, y, self._quantized, self.m_order, self._fmap, 
                 self.rank, self.init_type, self.n_epoch, self.alpha, self.seed, 
@@ -55,53 +80,39 @@ class LaplaceBTN(AbstractBTN):
             )
             other_params = (self.kd, X, y, self._fmap, self.alpha)
         elif self.opt_params['train_mode'] == 'GD':
-            grad_w = jit(grad(l2_reg_loss, argnums=0), static_argnums=(4,))
+            grad_w = jit(grad(self._loss, argnums=0), static_argnums=(4,))
             weights, self.kd = init_weights(
                 self.m_order, 
                 self.rank, 
-                X.shape[-1], 
+                self.w_shape[0], 
                 q_base=2 if self._quantized else None, 
                 seed=self.seed, 
                 init_type=self.init_type
             )
             other_params = (self.kd, X, y, self._fmap, self.alpha)
             # Training loop:
-            loss_list = []
-            loss_list.append(l2_reg_loss(weights, *other_params))
+            self.loss_list.append(self._loss(weights, *other_params))
             for _ in range(self.n_epoch):
                 dw = grad_w(weights, *other_params)
                 weights = gd_update(weights, dw, self.opt_params['lr'])
-                loss_list.append(l2_reg_loss(weights, *other_params))
-            self._loss_list = loss_list
+                self.loss_list.append(self._loss(weights, *other_params))
             self.w_mean = weights
         else:
             raise ValueError(f'Bad train_mode = "{self.opt_params["train_mode"]}". See docs.')
         # Covariance matrix estimation:
-        self.w_cov, self.L = self._cov(other_params)
-        self.is_fitted_ = True
-        return self
-    
-    def _predict_mean(self, X):
-        return predict_score(X, self.kd, self.w_mean, self._fmap)
-
-    def _predict_std(self, X, std_mode: Optional[str] = None):
-        if std_mode == 'sampling':
-            preds = []
-            w_mean_vec = self.w_mean.reshape(-1)
-            for _ in range(self.pd_nsamples):
-                e_normal = jnp.array(np.random.randn(w_mean_vec.size)) ######################## Need to change later on! ########################
-                w_sample = w_mean_vec + self.L.dot(e_normal)
-                prediction = predict_score(X, self.kd, w_sample.reshape(self.w_shape), self._fmap)
-                preds.append(prediction[:, None])
-            pred_std = self.std_err + jnp.std(jnp.hstack(preds), axis=1)
-        elif std_mode == 'linearize':
-            g_jac = jit(jacrev(predict_score, argnums=2), static_argnums=(3,))
-            g = g_jac(X, self.kd, self.w_mean, self._fmap).reshape(X.shape[0], -1)
-            pred_cov = self.std_err**2 + g.dot(self.w_cov.dot(g.T))
-            pred_std = jnp.sqrt(pred_cov.diagonal())
+        if self.block_cov:
+            self.w_cov, self.L = cov_block_diag(
+                X, self.alpha, self.kd, self.w_mean, self._fmap
+            )
         else:
-            raise ValueError(f'Bad std_sampling = "{std_mode}". See docs.')
-        return pred_std
+            self.w_cov, self.L = self._cov_full(other_params)
+
+    def _cov_full(self, other_params):
+        hess_f = jit(jacrev(jacrev(self._loss, argnums=0), argnums=0), static_argnums=(4,))
+        hw = hess_f(self.w_mean, *other_params).reshape((np.prod(self.w_shape),)*2)
+        hw = jnp.linalg.inv(hw)
+        L = jnp.linalg.cholesky(hw) # Not Sure about this! #
+        return hw, L
     
 def l2_reg_loss(weights, kd, x, y, fmap, alp):
     """x: (N, d), y: (N,), w: (d, I, R) """
