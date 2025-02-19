@@ -4,7 +4,6 @@ from typing import Optional, Callable
 import jax.numpy as jnp
 from jax import Array, jit
 from jax.typing import ArrayLike
-from jax import random as jrand
 
 import numpy as np
 
@@ -16,7 +15,7 @@ def init_weights(
     rank: int, 
     d_dim: int, 
     q_base: Optional[int] = None, 
-    init_type: str = 'kj_vec', 
+    init_type: Optional[str] = None, 
     seed: Optional[int] = None,
     dtype: jnp.dtype = jnp.float64,
 ) -> tuple[Array, int]:
@@ -41,10 +40,11 @@ def init_weights(
         To use a quantized model set q_base=2. 
         To use non-quantized model set q_base=None.
 
-    init_type : str, optional, default='kj_vec'
+    init_type : str, optional, default=None
         The normalization strategy for the weights:
             'k_mtx' - Normalize each matrix in the weights tensor.
             'kj_vec' - Normalize each vector in the matrices of the weights tensor.
+            None - No normalization.
 
     seed : int, optional, default=None
         A seed for the random number generator to ensure reproducibility.
@@ -81,10 +81,6 @@ def init_weights(
         weights /= jnp.linalg.norm(weights, ord=2, axis=(naxis, naxis + 1), keepdims=True)
     elif init_type == 'kj_vec': # Vector weights[k][:][j] is normalized
         weights /= jnp.linalg.norm(weights, ord=2, axis=naxis, keepdims=True)
-    elif init_type is None:
-        pass
-    else:
-        raise ValueError(f'Bad init_type = {init_type}. See docs.')
     return weights.astype(dtype), kd
 
 @partial(jit, static_argnums=(3,))
