@@ -8,6 +8,7 @@ from jax.typing import ArrayLike
 
 Feature = tuple
 PPFeature = namedtuple('PPFeature', 'name', defaults=['ppf'])
+PPNFeature = namedtuple('PPNFeature', 'name', defaults=['ppnf'])
 FFeature = namedtuple('FFeature', 'p_scale, name', defaults=[1, 'ff'])
 RBFFeature = namedtuple('RBFFeature', 'l_scale, name', defaults=[1, 'rbff'])
 FeatureMap = Callable[..., Array]
@@ -21,6 +22,15 @@ def pure_poli_features(x: ArrayLike, q: int, order: int) -> Array:
         Expressive Tensor Network Models", Frederiek Wesel, Kim Batselier, (Definition 3.1).
     """
     return jnp.power(x[:, None], jnp.arange(order))
+
+@partial(jit, static_argnums=2)
+def poli_norm_features(x: ArrayLike, q: int, order: int) -> Array:
+    """ 
+    Normalized pure polinomial features matrix for x. 
+    """
+    mtx = jnp.power(x[:, None], jnp.arange(order))
+    norm_vec = 1 / jnp.sqrt((mtx**2).sum(axis=1) + 1e-8)
+    return mtx * norm_vec[:, None]
 
 @jit
 def ppf_q2(x: ArrayLike, q: int) -> Array:
@@ -113,6 +123,8 @@ def prepare_fmap(
     else:
         if fmap_spec.name == 'ppf':
             return partial(pure_poli_features, order=m_order), jnp.float64
+        elif fmap_spec.name == 'ppnf':
+            return partial(poli_norm_features, order=m_order), jnp.float64
         elif fmap_spec.name == 'rbff':
             fmap = partial(
                 gaussian_kernel_features, order=m_order, 
