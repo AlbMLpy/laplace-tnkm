@@ -36,7 +36,7 @@ class AbstractBTN(ABC, RegressorMixin, BaseEstimator):
         self.seed = seed # Reproducibility parameter;
         self.opt_params = opt_params # Defines optimization solver and its parameters;
         self.n_epoch_global = n_epoch_global # Defines #sweeps between dist. changes;
-        self.pd_nsamples = pred_dist_n_samples # For pred. dist. estimation #samples;
+        self.pred_dist_n_samples = pred_dist_n_samples # For pred. dist. estimation #samples;
         self.beta_e_n_samples = beta_e_n_samples # For beta_e update #samples;
         # Initialize precisions if needed:
         self.upd_beta_e = beta_e is None
@@ -50,7 +50,6 @@ class AbstractBTN(ABC, RegressorMixin, BaseEstimator):
         ### Future ###
         self._quantized = False ### Non-quantized ###
         self.kd = 1 ### Non-quantized ###
-
         # Prepare local nonlinear map:
         self._fmap, self._dtype = prepare_fmap(fmap, m_order, self._quantized)
 
@@ -104,7 +103,7 @@ class AbstractBTN(ABC, RegressorMixin, BaseEstimator):
         if std_mode == 'sampling':
             w_mean_vec = self.w_mean.reshape(-1)
             preds = []
-            for _ in range(self.pd_nsamples):
+            for _ in range(self.pred_dist_n_samples):
                 w_sample = self._w_sample(w_mean_vec)
                 prediction = predict_score(X, self.kd, w_sample.reshape(self.w_shape), self._fmap)
                 preds.append(prediction[:, None])

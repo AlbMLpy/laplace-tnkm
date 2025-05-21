@@ -107,12 +107,24 @@ class LaplaceBTN(AbstractBTN):
         else:
             self.w_cov, self.L = self._cov_full(other_params)
 
+    def nearest_positive_definite(self, matrix):
+        eigval, eigvec = np.linalg.eigh(matrix)
+        eigval[eigval < 0] = 0.1 # Replace negative eigenvalues with small positive values
+        return eigvec @ np.diag(eigval) @ eigvec.T
+
     def _cov_full(self, other_params):
         hess_f = jit(jacrev(jacrev(self._loss, argnums=0), argnums=0), static_argnums=(4,))
         hw = hess_f(self.w_mean, *other_params).reshape((np.prod(self.w_shape),)*2)
-        hw = jnp.linalg.inv(hw)
-        L = jnp.linalg.cholesky(hw) # Not Sure about this! #
-        return hw, L
+        #print(self.w_mean)
+        print(self.alpha)
+        print(hw)
+        hw = np.array(hw)
+        hw = np.linalg.pinv(hw)
+        #hw += np.eye(hw.shape[0]) * 1e-6
+        #print(type(hw))
+        hw = self.nearest_positive_definite(hw)
+        L = np.linalg.cholesky(hw) # Not Sure about this! #
+        return jnp.array(hw), jnp.array(L)
     
 def l2_reg_loss(weights, kd, x, y, fmap, alp):
     """x: (N, d), y: (N,), w: (d, I, R) """
