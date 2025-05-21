@@ -11,7 +11,6 @@ from .model_functionality import (
     get_fw_hadamard_mtx,
     get_ww_hadamard_mtx,
     update_weights,
-    run_callback,
 )
 
 Q_BASE = 2
@@ -38,8 +37,6 @@ def cpr(
     weights, kd = init_weights(m_order, rank, x.shape[-1], q_base, init_type, seed, dtype)
     fw_hadamard = get_fw_hadamard_mtx(x, kd, weights, fmap)
     ww_hadamard = get_ww_hadamard_mtx(weights)
-    run_callback(x, y, alpha, kd, weights, fmap, xy_test, callback)
     for _ in range(n_epoch):
         weights, fw_hadamard, ww_hadamard = update_weights(x, y, alpha, kd, weights, fmap, fw_hadamard, ww_hadamard, pinv, ww_reg)
-        run_callback(x, y, alpha, kd, weights, fmap, xy_test, callback)
     return weights, kd
