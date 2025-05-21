@@ -1,5 +1,6 @@
 from functools import partial
 from typing import Optional, Callable
+from collections import defaultdict
 
 import jax.numpy as jnp
 from jax import Array, jit
@@ -8,7 +9,7 @@ from jax.typing import ArrayLike
 import numpy as np
 
 from .features import FeatureMap
-from .matrix_operations import khatri_rao_row, block_diag_jax
+from .matrix_operations import khatri_rao_row, block_diag
 
 def init_weights(
     m_order: int, 
@@ -83,8 +84,8 @@ def init_weights(
         weights /= jnp.linalg.norm(weights, ord=2, axis=naxis, keepdims=True)
     return weights.astype(dtype), kd
 
-@partial(jit, static_argnums=(3,))
-def get_fw_hadamard_mtx(x: ArrayLike, kd: int, weights: ArrayLike, fmap: FeatureMap) -> Array:
+#@partial(jit, static_argnums=(3,))
+def get_fw_hadamard_mtx(x: ArrayLike, kd: int, w_ten: ArrayLike, fmap: FeatureMap) -> Array:
     """ 
     Calculate the Hadamard product of matrix multiplication between features and CPD cores.
 
@@ -96,7 +97,7 @@ def get_fw_hadamard_mtx(x: ArrayLike, kd: int, weights: ArrayLike, fmap: Feature
     kd : int
         Degree in the equation: m_order = q_base^(kd).
 
-    weights : ArrayLike
+    w_ten : ArrayLike
         An array containing the initialized weights in CPD format.
 
     fmap: FeatureMap
@@ -108,20 +109,20 @@ def get_fw_hadamard_mtx(x: ArrayLike, kd: int, weights: ArrayLike, fmap: Feature
         Array of shape: (n_samples, rank)
     """
 
-    fw_hadamard = jnp.ones((x.shape[0], weights.shape[-1]), dtype=weights.dtype)
-    for ind, wk in enumerate(weights):
+    fw_hadamard = jnp.ones((x.shape[0], w_ten.shape[-1]), dtype=w_ten.dtype)
+    for ind, wk in enumerate(w_ten):
         k, q = divmod(ind, kd) # q starts from zero -> for fmap
         fw_hadamard *= fmap(x[:, k], q).dot(wk)
     return fw_hadamard
 
-@jit
-def get_ww_hadamard_mtx(weights: ArrayLike) -> Array:
+#@jit
+def get_ww_hadamard_mtx(w_ten: ArrayLike) -> Array:
     """ 
     Calculate the Hadamard product of matrix multiplication between corresponding CPD cores.
 
     Parameters
     ----------
-    weights : ArrayLike
+    w_ten : ArrayLike
         An array containing the initialized weights in CPD format.
 
     dtype : jnp.dtype, default=jnp.float64
@@ -133,13 +134,13 @@ def get_ww_hadamard_mtx(weights: ArrayLike) -> Array:
         Array of shape: (rank, rank)
     """
 
-    ww_hadamard = jnp.ones((weights.shape[-1],)*2, dtype=weights.dtype)
-    for wk in weights:
+    ww_hadamard = jnp.ones((w_ten.shape[-1],)*2, dtype=w_ten.dtype)
+    for wk in w_ten:
         ww_hadamard *= wk.T.conj().dot(wk)
     return ww_hadamard
 
-@jit
-def _prepare_system(
+#@jit
+def prepare_system(
     fk_mtx: ArrayLike, 
     fw_hadamard: ArrayLike,
     y: ArrayLike,
@@ -147,7 +148,7 @@ def _prepare_system(
     Fk = khatri_rao_row(fw_hadamard, fk_mtx) # Fortran Ordering
     return Fk.T.conj().dot(Fk), Fk.T.conj().dot(y)
 
-@partial(jit, static_argnums=(5, 6))
+#@partial(jit, static_argnums=(5, 6))
 def get_updated_als_factor(
     fk_mtx: ArrayLike, 
     fw_hadamard: ArrayLike,
@@ -184,106 +185,119 @@ def get_updated_als_factor(
     """
 
     (_, f_dim), (rank, _) = fk_mtx.shape, ww_hadamard.shape
-    A, b = _prepare_system(fk_mtx, fw_hadamard, y)
+    A, b = prepare_system(fk_mtx, fw_hadamard, y)
     if ww_reg:
         A += alpha * jnp.kron(ww_hadamard, jnp.eye(f_dim)) # Fortran Ordering
     else:
         A += alpha * jnp.eye(f_dim*rank)
-    sol = jnp.linalg.pinv(A).dot(b) if pinv else jnp.linalg.solve(A, b)
-    return sol.reshape(f_dim, rank, order='F') # Fortran Ordering
+    sol = np.linalg.pinv(A).dot(b) if pinv else np.linalg.solve(A, b)
+    return jnp.array(sol.reshape(f_dim, rank, order='F')) # Fortran Ordering
 
-@partial(jit, static_argnums=(5, 8, 9))
+#@partial(jit, static_argnums=(5, 8, 9))
 def update_weights(
     x: ArrayLike, 
     y: ArrayLike,
-    alpha: float,
+    gamma_w: float,
+    beta_e: float,
     kd: int,
-    weights: ArrayLike,
+    w_ten: ArrayLike,
     fmap: FeatureMap,
     fw_hadamard: ArrayLike,
     ww_hadamard: ArrayLike,
     pinv: bool = False,
     ww_reg: bool = True,
 ) -> tuple[Array, Array, Array]:
-    """ 
-    Full update of model weights in CPD format.
-    """
-    for ind in range(weights.shape[0]):
+    """ Full update of model weights in CPD format. """
+    for ind in range(w_ten.shape[0]):
         # Preprocess:
         k, q = divmod(ind, kd) # q starts from zero -> for fmap
-        wk, fk_mtx = weights[ind], fmap(x[:, k], q)
-        fw_hadamard /= fk_mtx.dot(wk) 
-        ww_hadamard /= wk.T.conj().dot(wk) 
+        wk, fk_mtx = w_ten[ind], fmap(x[:, k], q)
+        fw_hadamard /= (fk_mtx.dot(wk) + 1e-14) # ZERO DIVISION?
+        ww_hadamard /= (wk.T.conj().dot(wk) + 1e-14) # ZERO DIVISION?
         # Solve linear system:
-        wk = get_updated_als_factor(fk_mtx, fw_hadamard, ww_hadamard, y, alpha, pinv, ww_reg)
-        weights = weights.at[ind].set(wk)
+        wk = get_updated_als_factor(fk_mtx, fw_hadamard, ww_hadamard, y, gamma_w / beta_e, pinv, ww_reg)
+        w_ten = w_ten.at[ind].set(wk)
         # Postprocess:
         fw_hadamard *= fk_mtx.dot(wk)
         ww_hadamard *= wk.T.conj().dot(wk)
-    return weights, fw_hadamard, ww_hadamard
-
-@partial(jit, static_argnums=(4,))
-def cov_block_diag(
-    x: ArrayLike, 
-    alpha: float,
-    kd: int,
-    weights: ArrayLike,
-    fmap: FeatureMap,
-):
-    fw_hadamard = get_fw_hadamard_mtx(x, kd, weights, fmap) ### Not effective ###
-    d, I, R = weights.shape
-    blocks, blocks_l = [], []
-    for ind in range(d):
-        k, q = divmod(ind, kd) # q starts from zero -> for fmap
-        wk, fk_mtx = weights[ind], fmap(x[:, k], q)
-        fw_hadamard /= fk_mtx.dot(wk) 
-        Fk = khatri_rao_row(fw_hadamard, fk_mtx)
-        block_inv = jnp.linalg.pinv(
-            Fk.T.dot(Fk) 
-            + alpha*jnp.eye(I*R, I*R)
-        )
-        blocks.append(block_inv)
-        blocks_l.append(jnp.linalg.cholesky(block_inv))
-        fw_hadamard *= fk_mtx.dot(wk)
-    hw = block_diag_jax(blocks)
-    L = block_diag_jax(blocks_l)
-    return hw, L
+    return w_ten, fw_hadamard, ww_hadamard
 
 @partial(jit, static_argnums=(3,))
 def predict_score(
     x: ArrayLike, 
     kd: int, 
-    weights: ArrayLike, 
-    fmap: FeatureMap
+    w_ten: ArrayLike, 
+    fmap: FeatureMap,
 ) -> Array:
-    """ 
-    Generate prediction scores for CPD based model. 
-    """
-    n_samples, rank = x.shape[0], weights.shape[-1]
-    score = jnp.ones((n_samples, rank), dtype=weights.dtype)
-    for ind, wk in enumerate(weights):
+    """ Generate prediction scores for CPD based model. """
+    score = jnp.ones((x.shape[0], w_ten.shape[-1]), dtype=w_ten.dtype)
+    for ind, wk in enumerate(w_ten):
         k, q = divmod(ind, kd) # q starts from zero -> for fmap
         score *= fmap(x[:, k], q).dot(wk)
     return jnp.real(jnp.sum(score, 1))
 
-def run_callback(
-    x: ArrayLike, 
-    y: ArrayLike, 
-    alpha: float, 
-    kd: int, 
-    weights: ArrayLike,  
-    fmap: FeatureMap, 
-    xy_test: Optional[tuple] = None,
-    callback: Optional[Callable] = None,
-) -> None:
-    """
-    Calculates user-defined callback function.
-    """
-    if callback:
-        y_yp = None
-        if xy_test:
-            x_test, y_test = xy_test
-            y_pred_test = predict_score(x_test, kd, weights, fmap)
-            y_yp = y_test, y_pred_test
-        y_pred = predict_score(x, kd, weights, fmap)
-        callback(dict(y=y, y_pred=y_pred, weights=weights, alpha=alpha, y_yp=y_yp))
+def get_fw_part_mtx(fw_hadamard, fw_list):
+    fwh = fw_hadamard.copy()
+    for fw in fw_list:
+        fwh /= fw
+    return fwh
+
+def hess_full(w_ten, kd, x, y, fmap, gamma_w, beta_e, mode='full'):
+    d, I, R = w_ten.shape
+    P = I*R
+    hess_w = jnp.zeros((d*P, d*P))
+    T = get_fw_hadamard_mtx(x, kd, w_ten, fmap) 
+    for k in range(d):
+        zk, qk = divmod(k, kd) # q starts from zero -> for fmap
+        wk, fk_mtx = w_ten[zk], fmap(x[:, zk], qk)
+        Tk = get_fw_part_mtx(T, [fk_mtx.dot(wk),])
+        for m in range(k, d):
+            if k == m: 
+                Fk = khatri_rao_row(Tk, fk_mtx)
+                hess_w = hess_w.at[k*P:k*P + P, k*P:k*P + P].set(
+                    beta_e*Fk.T.conj().dot(Fk) + gamma_w*jnp.eye(P, P))
+            else:
+                if mode == 'block_diag':
+                    continue
+                zm, qm = divmod(m, kd) # q starts from zero -> for fmap
+                wm, fm_mtx = w_ten[zm], fmap(x[:, zm], qm)
+                fwm = fm_mtx.dot(wm)
+                Tm = get_fw_part_mtx(T, [fwm,])
+                Dkm = khatri_rao_row(Tm, Tk)
+                Ekm = (T.sum(axis=1) - y)[:, None] * get_fw_part_mtx(Tk, [fwm,])
+                for r in range(R):
+                    for p in range(R):
+                        Jkmrp = Dkm[:, r + p*R]
+                        if r == p: 
+                            Jkmrp += Ekm[:, r]
+                        Hkmrp = fk_mtx.T.dot(Jkmrp[:, None] * fm_mtx)
+                        rx, cx = k*P + r*I, m*P + p*I
+                        hess_w = hess_w.at[rx:rx + I, cx:cx + I].set(beta_e*Hkmrp)
+                        hess_w = hess_w.at[cx:cx + I, rx:rx + I].set(beta_e*Hkmrp.T)
+    return hess_w 
+
+def cov_block_diag(w_ten, kd, x, fmap, gamma_w: float, beta_e: float):
+    d, I, R = w_ten.shape
+    blocks, blocks_l = [], []
+    T = get_fw_hadamard_mtx(x, kd, w_ten, fmap)
+    for ind in range(d):
+        k, q = divmod(ind, kd) # q starts from zero -> for fmap
+        wk, fk_mtx = w_ten[ind], fmap(x[:, k], q)
+        T /= fk_mtx.dot(wk) 
+        Fk = khatri_rao_row(T, fk_mtx)
+        mtx = beta_e*Fk.T.conj().dot(Fk) + gamma_w*jnp.eye(I*R, I*R) 
+        T *= fk_mtx.dot(wk)
+        block_inv = np.linalg.pinv(mtx)
+        block_cholesky = np.linalg.cholesky(block_inv)
+        blocks.append(block_inv)
+        blocks_l.append(block_cholesky)
+    w_cov = block_diag(blocks)
+    w_cholesky = block_diag(blocks_l)
+    return w_cov, w_cholesky
+
+def check_zero_cols(w_ten):
+    d_dim, _, rank = w_ten.shape
+    mask = jnp.empty((d_dim, rank), dtype=jnp.bool)
+    for i, wk in enumerate(w_ten):
+        mask = mask.at[i, :].set((jnp.abs(wk) < 1e-14).all(axis=0))
+    return mask
