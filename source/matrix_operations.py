@@ -12,7 +12,7 @@ def cpd_transform_vec(md, mi, mr):
     return khatri_rao_row(md.T, v).T.sum(axis=1)
 
 @jit
-def block_diag_jax(matrices) -> ArrayLike:
+def block_diag(matrices) -> ArrayLike:
     """
     Creates a block diagonal matrix from a list of matrices in JAX.
     """
@@ -26,3 +26,16 @@ def block_diag_jax(matrices) -> ArrayLike:
         r_offset += r
         c_offset += c
     return result
+
+def factors2vec(w):
+    d_dim = w.shape[0]
+    krp = w[0, :, :].T
+    for k in range(1, d_dim):
+        krp = khatri_rao_row(w[k, :, :].T, krp)
+    return krp.T.sum(axis=1)
+
+def ten3tovec(w_ten): # DIR
+    return w_ten.transpose(1, 2, 0).reshape(-1, order='F')
+
+def vec2ten3(w_vec, d_dim, m_order, rank):
+    return w_vec.reshape(m_order, rank, d_dim, order='F').transpose(2, 0, 1)
