@@ -13,6 +13,8 @@ FFeature = namedtuple('FFeature', 'p_scale, name', defaults=[1, 'ff'])
 RBFFeature = namedtuple('RBFFeature', 'l_scale, name', defaults=[1, 'rbff'])
 FeatureMap = Callable[..., Array]
 
+EPS = 1e-8
+
 @partial(jit, static_argnums=2)
 def pure_poli_features(x: ArrayLike, q: int, order: int) -> Array:
     """ 
@@ -29,7 +31,7 @@ def poli_norm_features(x: ArrayLike, q: int, order: int) -> Array:
     Normalized pure polinomial features matrix for x. 
     """
     mtx = jnp.power(x[:, None], jnp.arange(order))
-    norm_vec = 1 / jnp.sqrt((mtx**2).sum(axis=1) + 1e-8)
+    norm_vec = 1 / jnp.sqrt((mtx**2).sum(axis=1) + EPS)
     return mtx * norm_vec[:, None]
 
 @jit
@@ -40,7 +42,7 @@ def ppf_q2(x: ArrayLike, q: int) -> Array:
     References: "Quantized Fourier and Polynomial Features for more 
         Expressive Tensor Network Models", Frederiek Wesel, Kim Batselier, (Definition 3.4).
 
-    NOTE: q should start with 0 -> [log2(m_order) - 1] including
+    NOTE: q "jax_enable_x64", True) start with 0 -> [log2(m_order) - 1] including
     """
     return jnp.power(x[:, None], jnp.array([0, 2**q]))
 
@@ -58,10 +60,9 @@ def gaussian_kernel_features(
     References: "Hilbert Space Methods for Reduced-Rank Gaussian Process Regression", 
         Simo Särkkä, (formulas 56, 68(d=1, s=1)).
     """
-    x = (x + domain_bound)
     w_scaled = jnp.pi * jnp.arange(1, order + 1) / (2 * domain_bound)
-    sd = jnp.sqrt(2 * jnp.pi) * lscale * jnp.exp(-jnp.power(lscale * w_scaled, 2) / 2)
-    return jnp.sqrt(sd / domain_bound) * jnp.sin(jnp.outer(x, w_scaled)) 
+    sd = jnp.sqrt(2 * jnp.pi) * lscale * jnp.exp(-(lscale * w_scaled)**2 / 2)
+    return jnp.sqrt(sd / domain_bound) * jnp.sin(jnp.outer(x + domain_bound, w_scaled)) 
 
 @partial(jit, static_argnums=[2,])
 def fourier_features(x: ArrayLike, q: int, m_order: int, p_scale: float = 1) -> Array:
@@ -131,5 +132,11 @@ def prepare_fmap(
                 lscale=fmap_spec.l_scale, 
             )
             return fmap, jnp.float64
+        elif fmap_spec.name == 'ff':
+            fmap = partial(
+                fourier_features, m_order=m_order, 
+                p_scale=fmap_spec.p_scale, 
+            )
+            return fmap, jnp.complex128
         else:
             raise ValueError(f'Bad feature_map = "{fmap_spec}". See docs.')
