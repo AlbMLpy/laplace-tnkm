@@ -56,5 +56,3 @@ class TestFeatures(unittest.TestCase):
         )
         actual = vec2ten3(w_vec, *expected.shape)
         self.assertTrue(jnp.allclose(actual, expected))
-
-
