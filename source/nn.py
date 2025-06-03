@@ -9,7 +9,7 @@ import jax.numpy as jnp
 from jax import jit, hessian
 from jax import random
 from jax.flatten_util import ravel_pytree
-from .var_model import low_rank_cov_estimation, cov_estimation
+from .model_functionality import low_rank_cov_estimation, cov_estimation
 
 from .general_functions import update_results_dict
 from .evaluation import norm_frob
