@@ -1,15 +1,18 @@
 from functools import partial
-from typing import Optional, Callable
-from collections import defaultdict
+from typing import Optional
 
+import numpy as np
 import jax.numpy as jnp
 from jax import Array, jit
 from jax.typing import ArrayLike
 
-import numpy as np
-
 from .features import FeatureMap
-from .matrix_operations import khatri_rao_row, block_diag
+from .general_functions import check_nan
+from .matrix_operations import (
+    vec2ten3,
+    ten3tovec,
+    khatri_rao_row,
+)
 
 def init_weights(
     m_order: int, 
@@ -22,7 +25,7 @@ def init_weights(
 ) -> tuple[Array, int]:
     """
     Initialize weights in CPD format using Normal Distribution 
-    and optional normalization strategies. Use q_base parameter to generate 
+    and optional normalizationcheck_zero_cols strategies. Use q_base parameter to generate 
     quantized representation of weights.
 
     Parameters
@@ -84,7 +87,7 @@ def init_weights(
         weights /= jnp.linalg.norm(weights, ord=2, axis=naxis, keepdims=True)
     return weights.astype(dtype), kd
 
-#@partial(jit, static_argnums=(3,))
+@partial(jit, static_argnums=(3,))
 def get_fw_hadamard_mtx(x: ArrayLike, kd: int, w_ten: ArrayLike, fmap: FeatureMap) -> Array:
     """ 
     Calculate the Hadamard product of matrix multiplication between features and CPD cores.
@@ -115,7 +118,7 @@ def get_fw_hadamard_mtx(x: ArrayLike, kd: int, w_ten: ArrayLike, fmap: FeatureMa
         fw_hadamard *= fmap(x[:, k], q).dot(wk)
     return fw_hadamard
 
-#@jit
+@jit
 def get_ww_hadamard_mtx(w_ten: ArrayLike) -> Array:
     """ 
     Calculate the Hadamard product of matrix multiplication between corresponding CPD cores.
@@ -139,7 +142,7 @@ def get_ww_hadamard_mtx(w_ten: ArrayLike) -> Array:
         ww_hadamard *= wk.T.conj().dot(wk)
     return ww_hadamard
 
-#@jit
+@jit
 def prepare_system(
     fk_mtx: ArrayLike, 
     fw_hadamard: ArrayLike,
@@ -236,13 +239,141 @@ def predict_score(
         score *= fmap(x[:, k], q).dot(wk)
     return jnp.real(jnp.sum(score, 1))
 
+@partial(jit, static_argnums=(3,))
+def predict_score_linear(
+    x: ArrayLike, 
+    kd: int, 
+    w_ten: ArrayLike, 
+    fmap: FeatureMap, 
+    w_ten_opt: ArrayLike,
+):
+    w_jacob_manual = jacob_cpd(w_ten_opt, kd, x, fmap)
+    pred = predict_score(x, kd, w_ten_opt, fmap)
+    pred += w_jacob_manual.dot(ten3tovec(w_ten - w_ten_opt))
+    return pred
+
+def als_cpd(w_vec, kd, w_shape, x, y, fmap, n_epoch, gamma_w, beta_e, tracker: Optional[object] = None):
+    D, I, R = w_shape
+    w_ten = vec2ten3(w_vec, D, I, R)
+    fw_hadamard = get_fw_hadamard_mtx(x, kd, w_ten, fmap)
+    if tracker: tracker.track()
+    for ep in range(n_epoch):
+        for ind in range(w_ten.shape[0]):
+            # Preprocess:
+            k, q = divmod(ind, kd) # q starts from zero -> for fmap
+            wk, fk_mtx = w_ten[ind], fmap(x[:, k], q)
+            fw_hadamard /= (fk_mtx.dot(wk) + 1e-14) # ZERO DIVISION?
+            # Solve linear system:
+            alpha = gamma_w / beta_e
+            A, b = prepare_system(fk_mtx, fw_hadamard, y)
+            A += alpha * jnp.eye(I*R)
+            sol = jnp.linalg.solve(A, b)
+            wk = jnp.array(sol.reshape(I, R, order='F')) # Fortran Ordering
+            w_ten = w_ten.at[ind].set(wk)
+            # Postprocess:
+            fw_hadamard *= fk_mtx.dot(wk)
+            check_nan(w_ten)
+        if tracker: tracker.track()
+    return ten3tovec(w_ten)
+
+@partial(jit, static_argnums=(3,))
+def jacob_cpd(
+    w_ten: ArrayLike, 
+    kd: int, 
+    x: ArrayLike, 
+    fmap: FeatureMap
+):
+    D, I, R = w_ten.shape
+    P = I*R
+    jacob_mtx = jnp.empty((x.shape[0], D*P))
+    fw_hadamard = get_fw_hadamard_mtx(x, kd, w_ten, fmap)
+    for ind, wk in enumerate(w_ten):
+        k, q = divmod(ind, kd) # q starts from zero -> for fmap
+        phi_k = fmap(x[:, k], q)
+        phi_w = phi_k.dot(wk)
+        fw_hadamard /= (phi_w + 1e-14)
+        fk = khatri_rao_row(fw_hadamard, phi_k)
+        fw_hadamard *= phi_w
+        jacob_mtx = jacob_mtx.at[:, ind*P: ind*P + P].set(fk)
+    return jacob_mtx
+
+def hess_cov_estimation(w_ten, kd, x, y, fmap, gamma_w, beta_e, hess_type: str, hess_th: float = 1e-3):
+    if hess_type == 'full':
+        w_hess = hess_full(w_ten, kd, x, y, fmap, gamma_w, beta_e, mode='full')
+    elif hess_type == 'gauss_newton':
+        w_hess = hess_ggn(w_ten, kd, x, fmap, gamma_w, beta_e)
+    elif hess_type == 'block':
+        w_hess = hess_full(w_ten, kd, x, y, fmap, gamma_w, beta_e, mode='block_diag')
+    elif hess_type == 'mf':
+        w_hess = hess_diag(w_ten, kd, x, fmap, gamma_w, beta_e)
+    elif hess_type == 'last':
+        w_hess = hess_last(w_ten, kd, x, fmap, gamma_w, beta_e)
+    else:
+        raise ValueError(f'Bad hess_type: {hess_type}')
+    
+    if hess_th:
+        cov_f = partial(low_rank_cov_estimation, threshold=hess_th)
+    else:
+        cov_f = cov_estimation
+    
+    try: 
+        w_cov, w_cholesky = cov_f(w_hess); success = True;
+    except Exception as e: 
+        success = False
+
+    if success: 
+        return w_hess, w_cov, w_cholesky
+    else:
+        return w_hess, None, None
+    
+def hess_ggn(w_ten, kd, x, fmap, gamma_w: float, beta_e: float):
+    """ 
+    Generalized Gauss-Newton estimation of the Hessian.
+    Note: Naive version! Do not use structure of any kind. 
+    """
+    w_jacob = jacob_cpd(w_ten, kd, x, fmap)
+    w_hess_gn = beta_e*w_jacob.T.conj().dot(w_jacob)
+    return w_hess_gn + gamma_w*jnp.eye(*w_hess_gn.shape)
+
+def hess_diag(w_ten, kd, x, fmap, gamma_w: float, beta_e: float): 
+    """
+    Diagonal estimation of the Hessian. Related to Mean-Field Approximation.
+    Note: Naive version! Do not use structure of any kind. 
+    """
+    w_hess_gn = hess_ggn(w_ten, kd, x, fmap, gamma_w, beta_e)
+    return jnp.diag(jnp.diagonal(w_hess_gn))
+
+def hess_last(w_ten, kd, x, fmap, gamma_w: float, beta_e: float):
+    """
+    Estimation of the last diagonal block of the Hessian. 
+    Related to being Bayesian w.r.t. the last CPD core.
+    """
+    fw_hadamard = get_fw_hadamard_mtx(x, kd, w_ten, fmap)
+    d_dim, m_order, rank = w_ten.shape
+    last_ind = d_dim - 1
+    k, q = divmod(last_ind, kd) # q starts from zero -> for fmap
+    fk_mtx = fmap(x[:, k], q)
+    fw_hadamard /= fk_mtx.dot(w_ten[last_ind]) 
+    Fk = khatri_rao_row(fw_hadamard, fk_mtx)
+    return beta_e*Fk.T.conj().dot(Fk) + gamma_w*jnp.eye(*(m_order*rank,)*2) 
+
 def get_fw_part_mtx(fw_hadamard, fw_list):
     fwh = fw_hadamard.copy()
     for fw in fw_list:
         fwh /= fw
     return fwh
 
-def hess_full(w_ten, kd, x, y, fmap, gamma_w, beta_e, mode='full'):
+# Problems with jit!
+def hess_full(
+    w_ten, 
+    kd, 
+    x, 
+    y, 
+    fmap, 
+    gamma_w: float, 
+    beta_e: float, 
+    mode: str = 'full'
+):
     d, I, R = w_ten.shape
     P = I*R
     hess_w = jnp.zeros((d*P, d*P))
@@ -257,8 +388,7 @@ def hess_full(w_ten, kd, x, y, fmap, gamma_w, beta_e, mode='full'):
                 hess_w = hess_w.at[k*P:k*P + P, k*P:k*P + P].set(
                     beta_e*Fk.T.conj().dot(Fk) + gamma_w*jnp.eye(P, P))
             else:
-                if mode == 'block_diag':
-                    continue
+                if mode == 'block_diag': continue
                 zm, qm = divmod(m, kd) # q starts from zero -> for fmap
                 wm, fm_mtx = w_ten[zm], fmap(x[:, zm], qm)
                 fwm = fm_mtx.dot(wm)
@@ -276,23 +406,17 @@ def hess_full(w_ten, kd, x, y, fmap, gamma_w, beta_e, mode='full'):
                         hess_w = hess_w.at[cx:cx + I, rx:rx + I].set(beta_e*Hkmrp.T)
     return hess_w 
 
-def cov_block_diag(w_ten, kd, x, fmap, gamma_w: float, beta_e: float):
-    d, I, R = w_ten.shape
-    blocks, blocks_l = [], []
-    T = get_fw_hadamard_mtx(x, kd, w_ten, fmap)
-    for ind in range(d):
-        k, q = divmod(ind, kd) # q starts from zero -> for fmap
-        wk, fk_mtx = w_ten[ind], fmap(x[:, k], q)
-        T /= fk_mtx.dot(wk) 
-        Fk = khatri_rao_row(T, fk_mtx)
-        mtx = beta_e*Fk.T.conj().dot(Fk) + gamma_w*jnp.eye(I*R, I*R) 
-        T *= fk_mtx.dot(wk)
-        block_inv = np.linalg.pinv(mtx)
-        block_cholesky = np.linalg.cholesky(block_inv)
-        blocks.append(block_inv)
-        blocks_l.append(block_cholesky)
-    w_cov = block_diag(blocks)
-    w_cholesky = block_diag(blocks_l)
+def cov_estimation(w_hess):
+    w_cholesky = np.linalg.cholesky(w_hess)
+    w_cholesky = np.linalg.pinv(w_cholesky.T)
+    w_cov = w_cholesky.dot(w_cholesky.T)
+    return w_cov, w_cholesky
+
+def low_rank_cov_estimation(w_hess, threshold=1e-3):
+    s, u = np.linalg.eigh(w_hess)
+    mask = s >= threshold
+    w_cholesky = u[:, mask] * (1/jnp.sqrt(s[mask]))[None, :]
+    w_cov = w_cholesky.dot(w_cholesky.T)
     return w_cov, w_cholesky
 
 def check_zero_cols(w_ten):
@@ -301,3 +425,11 @@ def check_zero_cols(w_ten):
     for i, wk in enumerate(w_ten):
         mask = mask.at[i, :].set((jnp.abs(wk) < 1e-14).all(axis=0))
     return mask
+
+def process_weights(w_ten: ArrayLike):
+    _mask = check_zero_cols(w_ten)
+    mask = ~_mask.all(axis=0)
+    w_ten = w_ten[:, :, mask]
+    if w_ten.shape[-1] < 1: 
+        raise ValueError(f'Zero Rank! W shape: {w_ten.shape}')
+    return w_ten, w_ten.shape

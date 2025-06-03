@@ -4,24 +4,50 @@ from functools import partial
 
 import jax
 import jax.numpy as jnp
+from jax import jit, jacrev, hessian
 jax.config.update("jax_enable_x64", True)
 
 import numpy as np
 
 sys.path.append('./')
 
+from source.optimization import hess_full_jax
+from source.matrix_operations import vec2ten3, ten3tovec
+from source.features import pure_poli_features, ppf_q2, PPNFeature, prepare_fmap
 from source.model_functionality import (
+    jacob_cpd,
     hess_full,
-    init_weights, 
+    init_weights,
+    predict_score,
     get_fw_hadamard_mtx,
     get_ww_hadamard_mtx,
+    predict_score_linear,
     get_updated_als_factor,
 )
-from source.features import pure_poli_features, ppf_q2, PPNFeature, prepare_fmap
-from source.optimization import hess_full_jax
 
+def predict_score_vec(x, kd, w_vec, fmap, D, I, R):
+    w_ten = vec2ten3(w_vec, D, I, R)
+    return predict_score(x, kd, w_ten, fmap)
+
+jacob_w_jax = jit(jacrev(predict_score_vec, argnums=2), static_argnums=(3, 4, 5, 6))
 
 class TestModelFunctionality(unittest.TestCase):
+    def setUp(self):
+        self.x = jnp.array(
+            [
+                [1.0, 2],
+                [2, 3],
+            ]
+        )
+        self.kd = 1
+        self.weights = jnp.array(
+            [
+                [[1.0, 0], [2, 1], [3, 2]], 
+                [[0, 1], [1, 2], [2, 3]]
+            ]
+        )
+        self.fmap = partial(pure_poli_features, order=3) 
+
     def test_init_weights_non_quant(self):
         m_order, rank, d_dim, q_base = 13, 5, 4, None
         temp, _ = init_weights(m_order, rank, d_dim, q_base)
@@ -144,6 +170,18 @@ class TestModelFunctionality(unittest.TestCase):
         actual = get_ww_hadamard_mtx(weights)
         self.assertTrue(jnp.allclose(actual, expected))
 
+    def test_predict_score(self):
+        expected = jnp.array([111., 697.])
+        actual = predict_score(self.x, self.kd, self.weights, self.fmap)
+        self.assertTrue(jnp.allclose(actual, expected))
+
+    def test_jacob_cpd(self):
+        w_vec_true, w_true_shape = ten3tovec(self.weights), self.weights.shape
+        
+        expected = jacob_w_jax(self.x, self.kd, w_vec_true, self.fmap, *w_true_shape)
+        actual = jacob_cpd(self.weights, self.kd, self.x, self.fmap)
+        self.assertTrue(jnp.allclose(actual, expected))
+
     def test_hess_full(self):
         n_samples, d_dim, m_order, rank = 100, 20, 3, 4
         w_ten_test, kd = jnp.array(np.random.randn(d_dim, m_order, rank)), 1
@@ -153,4 +191,5 @@ class TestModelFunctionality(unittest.TestCase):
 
         expected = hess_full_jax(w_ten_test, kd, x, y, fmap, gamma_w, beta_e, w_ten_test.shape)
         actual = hess_full(w_ten_test, kd, x, y, fmap, gamma_w, beta_e, mode='full')
-        self.assertTrue(jnp.allclose(actual, expected)) #norm_frob(H_jax - H_hand)
+        self.assertTrue(jnp.allclose(actual, expected))
+        
