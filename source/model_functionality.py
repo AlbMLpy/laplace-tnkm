@@ -256,7 +256,7 @@ def als_cpd(w_vec, kd, w_shape, x, y, fmap, n_epoch, gamma_w, beta_e, tracker: O
     D, I, R = w_shape
     w_ten = vec2ten3(w_vec, D, I, R)
     fw_hadamard = get_fw_hadamard_mtx(x, kd, w_ten, fmap)
-    if tracker: tracker.track()
+    if tracker: tracker.track(w_ten, kd, fmap)
     for ep in range(n_epoch):
         for ind in range(w_ten.shape[0]):
             # Preprocess:
@@ -273,7 +273,7 @@ def als_cpd(w_vec, kd, w_shape, x, y, fmap, n_epoch, gamma_w, beta_e, tracker: O
             # Postprocess:
             fw_hadamard *= fk_mtx.dot(wk)
             check_nan(w_ten)
-        if tracker: tracker.track()
+        if tracker: tracker.track(w_ten, kd, fmap)
     return ten3tovec(w_ten)
 
 @partial(jit, static_argnums=(3,))
