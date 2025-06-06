@@ -73,8 +73,9 @@ def predict_std(
 ) -> ArrayLike:
     w_mean_vec, w_shape = ten3tovec(w_ten), w_ten.shape
     preds = []
-    for _ in range(n_samples):
-        w_vec_sample = w_sample(w_mean_vec, w_cholesky, seed)
+    for idx_s in range(n_samples):
+        sample_seed = None if seed is None else seed + idx_s
+        w_vec_sample = w_sample(w_mean_vec, w_cholesky, sample_seed)
         scores = get_scores(w_mean_vec, w_vec_sample, w_shape, kd, x, fmap, pd_mode)
         preds.append(scores[:, None])
     pred_std = jnp.std(jnp.hstack(preds), axis=1)
@@ -98,8 +99,9 @@ def update_beta_e(
 ):
     w_mean_vec, w_shape = ten3tovec(w_ten), w_ten.shape
     mean_train_err = 0.0
-    for _ in range(n_samples):
-        w_vec_sample = w_sample(w_mean_vec, w_cholesky, seed)
+    for idx_s in range(n_samples):
+        sample_seed = None if seed is None else seed + idx_s
+        w_vec_sample = w_sample(w_mean_vec, w_cholesky, sample_seed)
         scores = get_scores(w_mean_vec, w_vec_sample, w_shape, kd, x, fmap, pd_mode)
         mean_train_err += jnp.sum((y - scores)**2)
     mean_train_err /= n_samples
