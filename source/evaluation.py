@@ -1,12 +1,12 @@
 import jax.numpy as jnp
 
-from sklearn.metrics import mean_squared_error as mse
+from sklearn.metrics import root_mean_squared_error
 
 from .matrix_operations import vec2ten3
 from .model_functionality import predict_score
 
 def rmse(y1, y2): 
-    return mse(y1, y2, squared=False)
+    return root_mean_squared_error(y1, y2)
 
 def pll(y_pred, var_pred, y_true):
     """ Computes the predictive log-likelihood. """
