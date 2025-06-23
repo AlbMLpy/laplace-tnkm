@@ -57,7 +57,7 @@ class LaplaceCPR(RegressorMixin, BaseEstimator):
         self._quant = False
         self._qbase = None
         self._init_type = None
-        self._beta_e_sample_seed = None
+        self._beta_e_sample_seed = seed
         # Prepare local nonlinear map:
         self._fmap, self._dtype = prepare_fmap(
             fmap, m_order, self._quant
@@ -123,6 +123,8 @@ class LaplaceCPR(RegressorMixin, BaseEstimator):
         )
 
     def _update_beta_e(self, X, y):
+        if self._beta_e_sample_seed:
+            self._beta_e_sample_seed += 1
         self.cn, self.dn, self.beta_e = update_beta_e(
             self.cn, self.dn, 
             self.w_ten, self.w_cholesky, 
