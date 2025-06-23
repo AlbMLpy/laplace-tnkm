@@ -99,11 +99,18 @@ def plot_y_list(
     figsize: tuple[int] = (8, 4),
 ):
     if x is None:
-        x = np.arange(len(y_list[0]))
+        x_vals = [np.arange(len(y)) for y in y_list]
+    elif isinstance(x[0], (int, float)):  # one shared x for all
+        x_vals = [x] * len(y_list)
+    else:
+        x_vals = x
     with mpl.rc_context(PARAMS):
         plt.figure(figsize=figsize)
         for i, y in enumerate(y_list): 
-            plt.plot(x, y, marker='*', linestyle='-', label='' if leg_list is None else leg_list[i]) 
+            plt.plot(
+                x_vals[i], y, marker='*', linestyle='-', 
+                label='' if leg_list is None else leg_list[i]
+            ) 
         plt.xlabel(xlabel)
         plt.ylabel(ylabel)
         plt.xscale(x_scale)
