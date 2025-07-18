@@ -1,5 +1,6 @@
 from itertools import product
 
+import jax
 import numpy as np
 import jax.numpy as jnp
 from jax import jit, hessian
@@ -25,9 +26,9 @@ def adam_update(w_vec, dw, m, v, t, lr, beta1=0.9, beta2=0.999, eps=1e-8):
 def std_transform(p):
     return jnp.log(jnp.exp(p) + 1)
 
-def sample_w(w_mean, w_std):
-    e_noise = jnp.array(np.random.randn(*w_mean.shape))
-    return w_mean + e_noise*w_std
+def w_sample_diag(w_mean, w_std, key):
+    z = jax.random.normal(key, shape=w_mean.shape)
+    return w_mean + w_std*z
 
 def hess_full_jax(w_ten, kd, x, y, fmap, gamma_w, beta_e, w_shape):
     hess_f = jit(hessian(l2_gb_loss, argnums=0), static_argnums=(4, 7))
