@@ -14,6 +14,9 @@ PARAMS = {
     'font.size': 10,
     'axes.labelsize': 16,
     'axes.grid': True,
+    'lines.linewidth': 2,
+    'lines.markersize': 6,
+    'lines.linestyle': '-',
     'legend.fontsize': 16,
     'xtick.labelsize': 12,
     'ytick.labelsize': 12,
@@ -28,69 +31,6 @@ COLORS = dict(
     orange='#ff7f0e', 
     purple='#9467bd'
 )
-
-def plot_mtx(
-    mtx, 
-    title: str = '', 
-    save_path: Optional[str] = None,
-    show_plot: bool = True,
-    dpi: int = 200, 
-):
-    plt.matshow(mtx)
-    cbar = plt.colorbar()
-    cbar.set_label("Values")
-    plt.title(title)
-    plt.tight_layout()
-    if save_path: 
-        plt.savefig(save_path, dpi=dpi)
-    if show_plot:
-        plt.show()
-    else:
-        plt.close()
-
-def plot_mtx_list(
-    mtx_list, 
-    titles=None, 
-    overall_title: Optional[str] = None,
-    save_path: Optional[str] = None,
-    show_plot: bool = True,
-    dpi: int = 200,
-):
-    """
-    Plots multiple matrices in a single figure using subplots.
-    
-    Parameters:
-    - mtx_list: List of 2D numpy arrays to be plotted.
-    - titles: Optional list of titles for each subplot.
-    - save_path: Optional path to save the figure.
-    - show_plot: Whether to show the plot.
-    - dpi: Resolution of the saved figure.
-    """
-    num_mtx = len(mtx_list)
-    cols = min(num_mtx, 5)  # Limit to 3 columns for better readability
-    rows = (num_mtx + cols - 1) // cols  # Compute rows needed
-    
-    fig, axes = plt.subplots(rows, cols, figsize=(3 * cols, 3 * rows))
-    axes = np.array(axes).reshape(-1)  # Flatten axes for easy indexing
-    
-    for i, (mtx, ax) in enumerate(zip(mtx_list, axes)):
-        im = ax.matshow(mtx)
-        ax.set_title(titles[i] if titles else f"Matrix {i+1}")
-        plt.colorbar(im, ax=ax)
-    
-    for j in range(i + 1, len(axes)):  # Hide unused subplots
-        fig.delaxes(axes[j])
-
-    if overall_title:
-        fig.suptitle(overall_title, fontsize=14, fontweight="bold")
-    
-    plt.tight_layout()
-    if save_path:
-        plt.savefig(save_path, dpi=dpi)
-    if show_plot:
-        plt.show()
-    else:
-        plt.close()
 
 def plot_y_list( 
     y_list,
@@ -269,6 +209,59 @@ def generate_prediction_gif(
     for path in frame_paths:
         os.remove(path)
     os.rmdir(temp_dir)
+
+### Ablation Study ### 
+def plot_xy_list(ax, x_list, y_list, legend_list, color_list, markers) -> list:
+    line_list = []
+    for x, y, legend, color, m in zip(x_list, y_list, legend_list, color_list, markers):
+        line, = ax.plot(x, y, marker=m, label=legend, color=color)
+        line_list.append(line)
+    return line_list
+
+def plot_multi_xy_list(
+    multi_x_lists: list[list], 
+    multi_y_lists: list[list],                               
+    multi_legend_lists: list[list],           
+    titles: list[str],   
+    color_list: list[str],      
+    marker_list: list[str], 
+    xlabel='',
+    ylabel='',
+    x_scale='linear',
+    y_scale='linear',
+    save_path: Optional[str] = None,
+    show_plot: bool = True,
+    dpi: int = 500,
+    figsize: tuple[int] = (12, 6),
+    ncols: int = 2,
+):
+    num_subplots = len(multi_y_lists)
+    nrows = (num_subplots + ncols - 1) // ncols
+    with mpl.rc_context(PARAMS):
+        fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=figsize, squeeze=False)
+        axes = np.ravel(axes)
+        for i, ax in enumerate(axes):
+            handles = plot_xy_list(ax, multi_x_lists[i], multi_y_lists[i], 
+                                   multi_legend_lists[i], color_list, marker_list)
+            ax.set_xlabel(xlabel)
+            ax.set_ylabel(ylabel)
+            ax.set_xscale(x_scale)
+            ax.set_yscale(y_scale)
+            ax.set_title(titles[i])
+        for j in range(num_subplots, len(axes)): fig.delaxes(axes[j]) # Hide unused axes
+        # Add shared legend at bottom
+        legend = fig.legend(handles=handles, labels=multi_legend_lists[0],
+                            loc='lower center', bbox_to_anchor=(0.5, -0.1),
+                            ncol=len(handles), frameon=True)
+        legend.get_frame().set_edgecolor('black')
+        legend.get_frame().set_linewidth(1.0)
+        plt.tight_layout(rect=[0, 0.05, 1, 1])  # leave space at bottom for legend
+        if save_path:
+            plt.savefig(save_path, dpi=dpi, bbox_inches="tight")
+        if show_plot:
+            plt.show()
+        else:
+            plt.close()
 
 ### Illustrative Example ###
 def plot_x3_results_multiple(
