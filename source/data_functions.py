@@ -67,3 +67,13 @@ def get_batches(x, y, batch_size):
         end = start + batch_size
         batch_idx = indices[start:end]
         yield x[batch_idx], y[batch_idx]
+
+def generate_x3_data(n_samples, d_dim, min_v=-4, max_v=4, std_err=3, seed=None, sort_x=True):
+    rs = np.random.RandomState(seed)
+    x = rs.uniform(min_v, max_v, (n_samples, d_dim))
+    if sort_x:
+        x = np.sort(x, axis=0)
+    e = rs.normal(0.0, std_err, (n_samples,))
+    y_true = (x**3).sum(axis=1)
+    y = y_true + e
+    return x, y, y_true
