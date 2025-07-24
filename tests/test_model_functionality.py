@@ -3,26 +3,29 @@ import unittest
 from functools import partial
 
 import jax
-import jax.numpy as jnp
-from jax import jit, jacrev, hessian
-jax.config.update("jax_enable_x64", True)
-
 import numpy as np
+import jax.numpy as jnp
+from jax import jit, jacrev
+jax.config.update("jax_enable_x64", True)
 
 sys.path.append('./')
 
 from source.optimization import hess_full_jax
 from source.matrix_operations import vec2ten3, ten3tovec
-from source.features import pure_poli_features, ppf_q2, PPNFeature, prepare_fmap
+from source.features import PPNFeature, pure_poli_features, ppf_q2, prepare_fmap
 from source.model_functionality import (
+    als_cpd,
+    hess_ggn,
     jacob_cpd,
     hess_full,
+    hess_diag,
+    hess_last,
     init_weights,
     predict_score,
+    update_weights,
+    hess_block_diag,
     get_fw_hadamard_mtx,
-    get_ww_hadamard_mtx,
     predict_score_linear,
-    get_updated_als_factor,
 )
 
 def predict_score_vec(x, kd, w_vec, fmap, D, I, R):
@@ -39,6 +42,7 @@ class TestModelFunctionality(unittest.TestCase):
                 [2, 3],
             ]
         )
+        self.y = jnp.array([1.5, 4.0])
         self.kd = 1
         self.weights = jnp.array(
             [
@@ -70,33 +74,6 @@ class TestModelFunctionality(unittest.TestCase):
         m_order, rank, d_dim, q_base = 13, 5, 4, 2
         with self.assertRaises(ValueError):
             init_weights(m_order, rank, d_dim, q_base)
-
-    def test_get_updated_als_factor_ww(self):
-        n, f_dim = 3, 2
-        fk_mtx = jnp.ones((n, f_dim))
-        fw_hadamard = jnp.array(
-             [[1.0, 2], [2, 4], [4, 8]]
-        )
-        ww_hadamard = jnp.array([[1.0, 3], [3, 5]])
-        y = jnp.array([1.0, 0, 1])
-        alpha = 1.0
-        
-        expected = jnp.array(
-            [
-                [0.03846154, 0.03846154],
-                [0.03846154, 0.03846154]
-            ]
-        )
-        actual = get_updated_als_factor(
-            fk_mtx, 
-            fw_hadamard,
-            ww_hadamard, 
-            y, 
-            alpha,
-            pinv=False,
-            ww_reg=True,
-        )
-        self.assertTrue(jnp.allclose(actual, expected))
 
     def test_get_fw_hadamard_mtx_quant(self):
         x = jnp.array(
@@ -158,21 +135,46 @@ class TestModelFunctionality(unittest.TestCase):
         actual = get_fw_hadamard_mtx(x, k_d, weights, feature_map)
         self.assertTrue(jnp.allclose(actual, expected))
 
-    def test_get_ww_hadamard_mtx(self):
-        weights = jnp.array(
-            [
-                [[1, 2], [2, 3], [3, 4]], 
-                [[0, 1], [1, 0], [1, 1]]
-            ]
-        )
-
-        expected = jnp.array([[28., 20.], [20., 58.]])
-        actual = get_ww_hadamard_mtx(weights)
-        self.assertTrue(jnp.allclose(actual, expected))
-
     def test_predict_score(self):
         expected = jnp.array([111., 697.])
         actual = predict_score(self.x, self.kd, self.weights, self.fmap)
+        self.assertTrue(jnp.allclose(actual, expected))
+
+    def test_predict_score_linear(self):
+        expected = 3 * jnp.array([111., 697.])
+        actual = predict_score_linear(
+            self.x, self.kd, 2*self.weights, self.fmap, self.weights)
+        self.assertTrue(jnp.allclose(actual, expected))
+
+    def test_update_weights(self):
+        fw_hadamard = get_fw_hadamard_mtx(self.x, self.kd, self.weights, self.fmap)
+        expected = jnp.array(
+            [[[ 2.36433768e-02,  4.08938675e-02],
+                [ 1.49947497e-02,  2.68913284e-02],
+                [-2.30250461e-03, -1.11374999e-03]],
+
+            [[ 1.14575093e-01,  2.27235192e-01],
+                [ 3.15863569e-01,  6.30582729e-01],
+                [ 8.91867290e-01,  1.78950249e+00]]]
+        )
+        actual = update_weights(
+            self.weights.copy(), self.kd, self.weights.shape, 
+            self.x, self.y, self.fmap, 1, 1, fw_hadamard,
+        )[0]
+        self.assertTrue(jnp.allclose(actual, expected))
+
+    def test_als_cpd(self):
+        expected = jnp.array(
+            [
+                0.06898755, 0.04465423, -0.0040124, 0.1381005, 
+                0.08938964, -0.00803209, 0.06574435, 0.17968062,  
+                0.503937, 0.13160822, 0.35968788, 1.00879012
+            ]
+        )
+        actual = als_cpd(
+            ten3tovec(self.weights.copy()), self.kd, 
+            self.weights.shape, self.x, self.y, self.fmap, 5, 1, 1
+        )
         self.assertTrue(jnp.allclose(actual, expected))
 
     def test_jacob_cpd(self):
@@ -192,4 +194,35 @@ class TestModelFunctionality(unittest.TestCase):
         expected = hess_full_jax(w_ten_test, kd, x, y, fmap, gamma_w, beta_e, w_ten_test.shape)
         actual = hess_full(w_ten_test, kd, x, y, fmap, gamma_w, beta_e, mode='full')
         self.assertTrue(jnp.allclose(actual, expected))
-        
+
+    def test_hess_ggn(self):
+        expected = jnp.array(
+            [
+                [3026., 5882.],
+                [1446., 2601.]
+            ]
+        )
+        actual = hess_ggn(self.weights, self.kd, self.x, self.fmap, 1, 1)[2:4, 3:5]
+        self.assertTrue(jnp.allclose(actual, expected))
+
+    def test_hess_block_diag(self):
+        hbd = hess_block_diag(self.weights, self.kd, self.x, self.fmap, 1, 1)
+        hf = hess_full(self.weights, self.kd, self.x, self.y, self.fmap, 1, 1, mode='full')
+        expected = hf[hbd > 0]
+        actual = hbd[hbd > 0]
+        self.assertTrue(jnp.allclose(actual, expected))
+
+    def test_hess_diag(self):
+        hbd = hess_block_diag(self.weights, self.kd, self.x, self.fmap, 1, 1)
+        hd = hess_diag(self.weights, self.kd, self.x, self.fmap, 1, 1)
+        expected = hbd[hd > 0]
+        actual = hd[hd > 0]
+        self.assertTrue(jnp.allclose(actual, expected))
+
+    def test_hess_last(self):
+        hbd = hess_block_diag(self.weights, self.kd, self.x, self.fmap, 1, 1)
+        hl = hess_last(self.weights, self.kd, self.x, self.fmap, 1, 1)
+        _, m_order, rank = self.weights.shape
+        expected = hbd[-m_order*rank:, -m_order*rank:]
+        actual = hl
+        self.assertTrue(jnp.allclose(actual, expected))
