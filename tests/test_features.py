@@ -10,6 +10,11 @@ sys.path.append('./')
 from source.features import (
     ff_q2,
     ppf_q2,
+    FFeature,
+    PPFeature,
+    PPNFeature,
+    RBFFeature,
+    prepare_fmap,
     fourier_features,
     pure_poli_features, 
     poli_norm_features,
@@ -113,3 +118,14 @@ class TestFeatures(unittest.TestCase):
 
         expected = fourier_features(x, None, m_order, p_scale)
         self.assertTrue(jnp.allclose(actual, expected))
+
+    def test_shifted_features(self):
+        m_order, shift = 3, 0.1
+        x = jnp.array([1.0, 2.0])
+        for fmap_spec in [PPFeature, PPNFeature, RBFFeature, FFeature]:
+            with self.subTest(fmap_spec):
+                fmap, _ = prepare_fmap(fmap_spec(), m_order, False)
+                fmap_shifted, _ = prepare_fmap(fmap_spec(shift=shift), m_order, False)
+                expected = fmap(x, None) + shift
+                actual = fmap_shifted(x, None)
+                self.assertTrue(jnp.allclose(actual, expected), fmap_spec)

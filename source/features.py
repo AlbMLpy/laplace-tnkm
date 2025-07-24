@@ -7,10 +7,10 @@ from jax import Array, jit
 from jax.typing import ArrayLike
 
 Feature = tuple
-PPFeature = namedtuple('PPFeature', 'name', defaults=['ppf'])
-PPNFeature = namedtuple('PPNFeature', 'name', defaults=['ppnf'])
-FFeature = namedtuple('FFeature', 'p_scale, name', defaults=[1, 'ff'])
-RBFFeature = namedtuple('RBFFeature', 'l_scale, name', defaults=[1, 'rbff'])
+PPFeature = namedtuple('PPFeature', 'name, shift', defaults=['ppf', None])
+PPNFeature = namedtuple('PPNFeature', 'name, shift', defaults=['ppnf', None])
+FFeature = namedtuple('FFeature', 'p_scale, name, shift', defaults=[1, 'ff', None])
+RBFFeature = namedtuple('RBFFeature', 'l_scale, name, shift', defaults=[1, 'rbff', None])
 FeatureMap = Callable[..., Array]
 
 EPS = 1e-8
@@ -104,39 +104,34 @@ def ff_q2(
         ),
     )
 
-def prepare_fmap(
-    fmap_spec: Feature, 
-    m_order: int, 
-    is_quant: bool,
-):
+def add_constant_shift(fn, shift: float = 0.1):
+    def wrapped(*args, **kwargs):
+        return fn(*args, **kwargs) + shift
+    return wrapped
+
+def prepare_fmap(fmap_spec: Feature, m_order: int, is_quant: bool):
     if is_quant:
         if fmap_spec.name == 'ppf':
-            return ppf_q2, jnp.float64
+            fmap, dtype = ppf_q2, jnp.float64
         elif fmap_spec.name == 'ff':
-            fmap = partial(
-                ff_q2, m_order=m_order, 
-                k_d=int(jnp.log2(m_order)), 
-                p_scale=fmap_spec.p_scale,
-            )
-            return fmap, jnp.complex128
+            kd = int(jnp.log2(m_order))
+            fmap = partial(ff_q2, m_order=m_order, k_d=kd, p_scale=fmap_spec.p_scale)
+            dtype = jnp.complex128
         else:
             raise ValueError(f'Bad feature_map = "{fmap_spec}". See docs.')
     else:
         if fmap_spec.name == 'ppf':
-            return partial(pure_poli_features, order=m_order), jnp.float64
+            fmap, dtype = partial(pure_poli_features, order=m_order), jnp.float64
         elif fmap_spec.name == 'ppnf':
-            return partial(poli_norm_features, order=m_order), jnp.float64
+            fmap, dtype = partial(poli_norm_features, order=m_order), jnp.float64
         elif fmap_spec.name == 'rbff':
-            fmap = partial(
-                gaussian_kernel_features, order=m_order, 
-                lscale=fmap_spec.l_scale, 
-            )
-            return fmap, jnp.float64
+            fmap = partial(gaussian_kernel_features, order=m_order, lscale=fmap_spec.l_scale)
+            dtype = jnp.float64
         elif fmap_spec.name == 'ff':
-            fmap = partial(
-                fourier_features, m_order=m_order, 
-                p_scale=fmap_spec.p_scale, 
-            )
-            return fmap, jnp.complex128
+            fmap = partial(fourier_features, m_order=m_order, p_scale=fmap_spec.p_scale)
+            dtype = jnp.complex128
         else:
             raise ValueError(f'Bad feature_map = "{fmap_spec}". See docs.')
+    if fmap_spec.shift is not None:
+        fmap = add_constant_shift(fmap, shift=fmap_spec.shift)
+    return fmap, dtype
