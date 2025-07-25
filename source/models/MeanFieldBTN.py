@@ -36,7 +36,8 @@ class MeanFieldBTN(AbstractBTN):
         )
         self.p_ids = ['m', 'p'] 
         self.n_loss_samples = n_loss_samples
-        self._loss = l2_reg_loss_mf_closed_form_kl if kl_closed_form else l2_reg_loss_mf 
+        self.kl_closed_form = kl_closed_form
+        self._loss = l2_reg_loss_mf_closed_form_kl if self.kl_closed_form else l2_reg_loss_mf 
         self._loss_key = jax.random.PRNGKey(np.random.RandomState(seed).randint(1e18))
 
     def fit(self, X, y, xy_test: Optional[tuple] = None):
