@@ -28,23 +28,19 @@ class StructPostBTN(MeanFieldBTN):
         beta_e_samples: int = 10,
         tracker: Optional[object] = None,
         n_loss_samples: int = 30, 
-        kl_closed_form: bool = True,
         m_rank: int = 1, 
     ):
         super().__init__(
             rank, fmap, m_order, n_epoch, beta_e, gamma_w, seed, 
             opt_params, n_epoch_vi, pd_samples, beta_e_samples, tracker,
-            n_loss_samples, kl_closed_form,
+            n_loss_samples,
         )
         self.m_rank = m_rank
         
         self.mode_names = ['d', 'I', 'R'] # data_dim, local feature dim, CPD rank;
         self.w_types = ['m', 'p'] # Mean, std related parameters;
         self.p_ids = [(wt, fn) for wt, fn in product(self.w_types, self.mode_names)]
-        if kl_closed_form: 
-            self._loss = l2_reg_loss_sp_closed_form_kl 
-        else:
-            raise NotImplementedError(f'kl_closed_form = {kl_closed_form}.')
+        self._loss = l2_reg_loss_sp_closed_form_kl 
 
     def _init_fit(self):
         key = jax.random.PRNGKey(np.random.RandomState(self.seed).randint(1e18))
