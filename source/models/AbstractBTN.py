@@ -26,7 +26,7 @@ class AbstractBTN(ABC, RegressorMixin, BaseEstimator):
         beta_e: Optional[float] = 1.0,
         gamma_w: Optional[float] = 1.0,
         seed: Optional[int] = None,
-        opt_params: dict = {'train_mode': 'GD', 'lr': 1e-3},
+        opt_params: Optional[dict] = None,
         n_epoch_vi: int = 1,
         pd_samples: int = 30,
         beta_e_samples: int = 10,
@@ -39,7 +39,7 @@ class AbstractBTN(ABC, RegressorMixin, BaseEstimator):
         self.beta_e = beta_e 
         self.gamma_w = gamma_w
         self.seed = seed
-        self.opt_params = opt_params 
+        self.opt_params = opt_params or {'train_mode': 'GD', 'lr': 1e-3}
         self.n_epoch_vi = n_epoch_vi
         self.pd_samples = pd_samples
         self.beta_e_samples = beta_e_samples
