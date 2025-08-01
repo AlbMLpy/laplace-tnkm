@@ -125,7 +125,6 @@ class CVTracker:
             gamma_w=model['model'].gamma_w,
             beta_e=model['model'].beta_e.item(),
             final_rank=model['model'].rank,
-            w_norm=norm_frob(model['model'].w_ten).item(),
         )
         extend_results_dict(
             self.extra_dict,
