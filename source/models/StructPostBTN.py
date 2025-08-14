@@ -1,18 +1,29 @@
 from typing import Optional
-from itertools import product
 
 import jax
 import numpy as np
+from flax import struct
 import jax.numpy as jnp
-from jax import jit, grad
 
+from ..evaluation import l2_loss_kl
 from .MeanFieldBTN import MeanFieldBTN
+from ..optimization import std_transform
 from ..features import Feature, PPFeature
-from ..model_functionality import predict_score
 from ..matrix_operations import cpd_transform_vec, vec2ten3
-from ..optimization import std_transform, w_sample_diag
+
+@struct.dataclass
+class SPBTNParams:
+    md: jnp.ndarray # mean vector - data_dim
+    mi: jnp.ndarray # mean vector - local feature dim
+    mr: jnp.ndarray # mean vector - CPD rank
+    pd: jnp.ndarray # log-std vector - data_dim
+    pi: jnp.ndarray # log-std vector - local feature dim
+    pr: jnp.ndarray # log-std vector - CPD rank
 
 class StructPostBTN(MeanFieldBTN):
+    """
+    Structured Posteriors Variational Inference for Bayesian Tensor Networks.
+    """
     def __init__(
         self, 
         rank: int = 1, 
@@ -36,27 +47,21 @@ class StructPostBTN(MeanFieldBTN):
             n_loss_samples,
         )
         self.m_rank = m_rank
-        
-        self.mode_names = ['d', 'I', 'R'] # data_dim, local feature dim, CPD rank;
-        self.w_types = ['m', 'p'] # Mean, std related parameters;
-        self.p_ids = [(wt, fn) for wt, fn in product(self.w_types, self.mode_names)]
-        self._loss = l2_reg_loss_sp_closed_form_kl 
+        self._loss = l2_loss_kl_sp
 
-    def _init_fit(self):
+    def _init_params(self):
         key = jax.random.PRNGKey(np.random.RandomState(self.seed).randint(1e18))
-        grad_f, params, loss_f = {}, {}, self._loss
-        mode2num = {k: v for k, v in zip(self.mode_names, self.w_shape)}
-        for i, p_id in enumerate(self.p_ids):
-            w_type, mode_name = p_id
-            grad_f[p_id] = jit(grad(loss_f, argnums=i), static_argnums=(6, 10, 13))
-            pk_shape = (mode2num[mode_name], self.m_rank) if 'm' == w_type else (mode2num[mode_name],)
-            key, subkey = jax.random.split(key)
-            params[p_id] = jax.random.normal(subkey, pk_shape)
-        return grad_f, params
+        keys = jax.random.split(key, num=6)
+        shapes_m = [(mk, self.m_rank) for mk in self.w_shape]
+        shapes_p = [(mk,) for mk in self.w_shape]
+        shapes = shapes_m + shapes_p
+        return SPBTNParams(
+            *[0.5*jax.random.normal(key, shape) for key, shape in zip(keys, shapes)]
+        )
     
     def _postprocess(self):
-        w_mean = cpd_transform_vec(*[self.params[k] for k in self.p_ids if 'm' in k])
-        w_std = std_transform_sp(*[self.params[k] for k in self.p_ids if 'p' in k])
+        w_mean = cpd_transform_vec(self.params.md, self.params.mi, self.params.mr)
+        w_std = std_transform_sp(self.params.pd, self.params.pi, self.params.pr)
         self.w_mean = vec2ten3(w_mean, *self.w_shape)
         self.w_cholesky = jnp.diag(w_std) # Not efficient!
     
@@ -64,16 +69,10 @@ def std_transform_sp(pd, pi, pr):
     pd, pi, pr = map(std_transform, (pd, pi, pr))
     return jnp.kron(pd, jnp.kron(pi, pr))
 
-def l2_reg_loss_sp_closed_form_kl(md, mi, mr, pd, pi, pr,
-    w_shape, kd, x, y, fmap, gamma_w, beta_e, n_loss_samples, key,
-):
-    w_mean_vec = cpd_transform_vec(md, mi, mr)
-    w_std_vec = std_transform_sp(pd, pi, pr)
-    w_var = w_std_vec**2
-    loss = gamma_w * (w_var.sum() + (w_mean_vec*w_mean_vec).sum()) - jnp.log(jnp.prod(w_var))
-    for _ in range(n_loss_samples):
-        key, subkey = jax.random.split(key)
-        w_vec_sample = w_sample_diag(w_mean_vec, w_std_vec, subkey)
-        scores = predict_score(x, kd, vec2ten3(w_vec_sample, *w_shape), fmap)  
-        loss += beta_e * jnp.sum((y - scores)**2) 
-    return 0.5 * loss
+def l2_loss_kl_sp(params, w_shape, kd, x, y, fmap, gamma_w, beta_e, key, n_samples):
+    w_mean_vec = cpd_transform_vec(params.md, params.mi, params.mr)
+    w_std_vec = std_transform_sp(params.pd, params.pi, params.pr)
+    return l2_loss_kl(
+        w_mean_vec, w_std_vec, w_shape, kd, x, y, 
+        fmap, gamma_w, beta_e, key, n_samples,
+    )

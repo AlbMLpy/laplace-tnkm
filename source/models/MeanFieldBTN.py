@@ -1,16 +1,23 @@
 from typing import Optional
+from functools import partial
 
 import jax
+import optax
 import numpy as np
+from jax import jit
+from flax import struct
 import jax.numpy as jnp
-from jax import jit, grad
 from sklearn.utils.validation import check_X_y
 
+from ..evaluation import l2_loss_kl
 from .AbstractBTN import AbstractBTN
-from ..features import Feature, PPFeature
-from ..model_functionality import predict_score
 from ..matrix_operations import vec2ten3
-from ..optimization import gd_update, std_transform, w_sample_diag
+from ..optimization import std_transform
+from ..features import Feature, PPFeature
+@struct.dataclass
+class MFBTNParams:
+    m: jnp.ndarray  # mean vector
+    p: jnp.ndarray  # log-std vector (pre-transformed)
 
 class MeanFieldBTN(AbstractBTN):
     """
@@ -36,22 +43,20 @@ class MeanFieldBTN(AbstractBTN):
             rank, fmap, m_order, n_epoch, beta_e, gamma_w, seed, 
             opt_params, n_epoch_vi, pd_samples, beta_e_samples, tracker,
         )
-        self.p_ids = ['m', 'p'] 
         self.n_loss_samples = n_loss_samples
-        self._loss = l2_reg_loss_mf_closed_form_kl
+        self._loss = l2_loss_kl_mf
         self._loss_key = jax.random.PRNGKey(np.random.RandomState(seed).randint(1e18))
 
     def fit(self, X, y, xy_test: Optional[tuple] = None):
         X, y = check_X_y(X, y)
         X, y = jnp.array(X), jnp.array(y)
-        # Initialize gradient functions and parameters:
         self.w_shape = (X.shape[-1], self.m_order, self.rank)
-        grad_f, self.params = self._init_fit()
+        self.params = self._init_params()
         self.loss_list = []
         # VI training loop:
         for _ in range(self.n_epoch_vi):
             self._loss_key, subkey = jax.random.split(self._loss_key)
-            self._update_w(X, y, grad_f, subkey)
+            self._update_w(X, y, subkey, xy_test)
             if self.upd_gamma_w:
                 self._update_gamma_w()
             if self.upd_beta_e:
@@ -61,67 +66,63 @@ class MeanFieldBTN(AbstractBTN):
         self.is_fitted_ = True
         return self
 
-    def _init_fit(self):
+    def _init_params(self):
         key = jax.random.PRNGKey(np.random.RandomState(self.seed).randint(1e18))
-        grad_f, params = {}, {}
-        for i, p_id in enumerate(self.p_ids):
-            grad_f[p_id] = jit(grad(self._loss, argnums=i), static_argnums=(2, 6, 9))
-            key, subkey = jax.random.split(key)
-            params[p_id] = 0.5*jax.random.normal(subkey, (np.prod(self.w_shape),))
-        return grad_f, params
-    
-    def _postprocess(self):
-        self.w_mean = vec2ten3(self.params['m'], *self.w_shape)
-        self.w_cholesky = jnp.diag(std_transform(self.params['p'])) # Not efficient!
-
-    def _update_w(self, X, y, grad_f, key, xy_test: Optional[tuple] = None):
-        if xy_test: 
-            raise NotImplementedError("Test-time updates not implemented.")
-        shared_args = (self.w_shape, self.kd, X, y, self._fmap, 
-                        self.gamma_w, self.beta_e, self.n_loss_samples)
-        self.loss_list.append(
-            self._loss(
-                *[self.params[i] for i in self.p_ids], *shared_args, key=key,
-            )
+        key, subkey = jax.random.split(key)
+        return MFBTNParams(
+            0.5*jax.random.normal(key, (np.prod(self.w_shape),)),
+            0.5*jax.random.normal(subkey, (np.prod(self.w_shape),)),
         )
-        for _ in range(self.n_epoch):
-            key, subkey = jax.random.split(key)
-            for k in self.p_ids:
-                grads = grad_f[k](
-                    *[self.params[i] for i in self.p_ids], *shared_args, key=subkey
-                )
-                self.params[k] = gd_update(self.params[k], grads, self.opt_params['lr'])
-            self.loss_list.append(
-                self._loss(
-                    *[self.params[i] for i in self.p_ids], *shared_args, key=subkey
-                )
-            )
+
+    def _update_w(self, X, y, key, xy_test: Optional[tuple] = None):
+        if xy_test: raise NotImplementedError("Test-time updates not implemented.")
+        self.params, loss_list = train(
+            self.params, X, y, key, self.w_shape, self.kd, self._fmap, 
+            self.gamma_w, self.beta_e, self.n_epoch, self.n_loss_samples, 
+            self.opt_params['train_mode'], self.opt_params['lr'], self._loss,
+        )
+        self.loss_list.extend(loss_list)
         self._postprocess()
 
-def l2_reg_loss_mf_closed_form_kl(w_mean_vec, p_std_vec, w_shape, kd, x, y, 
-                                  fmap, gamma_w, beta_e, n_loss_samples, key):
-    w_std_vec = std_transform(p_std_vec)
-    w_var = w_std_vec**2
-    kl_term = gamma_w * (w_var.sum() + (w_mean_vec**2).sum()) - jnp.sum(jnp.log(w_var))
-    likelihood_term = 0.0
-    for _ in range(n_loss_samples):
-        key, subkey = jax.random.split(key)
-        w_vec_sample = w_sample_diag(w_mean_vec, w_std_vec, subkey)
-        scores = predict_score(x, kd, vec2ten3(w_vec_sample, *w_shape), fmap) 
-        likelihood_term += beta_e * jnp.sum((y - scores)**2)
-    return 0.5 * (likelihood_term + kl_term)
+    def _postprocess(self):
+        self.w_mean = vec2ten3(self.params.m, *self.w_shape)
+        self.w_cholesky = jnp.diag(std_transform(self.params.p))
 
-def l2_reg_loss_mf(w_mean_vec, p_std_vec, w_shape, kd, x, y, 
-    fmap, gamma_w, beta_e, n_loss_samples, key, eps=1e-8,
+def train(
+    params, X, y, key, w_shape, kd, fmap, gamma_w, beta_e, 
+    n_epochs, n_samples, opt_mode, lr, loss_fn
 ):
-    w_std_vec = std_transform(p_std_vec)
-    loss = 0.0
-    for _ in range(n_loss_samples):
-        key, subkey = jax.random.split(key)
-        w_vec_sample = w_sample_diag(w_mean_vec, w_std_vec, subkey)
-        scores = predict_score(x, kd, vec2ten3(w_vec_sample, *w_shape), fmap) 
-        diff = w_vec_sample - w_mean_vec
-        loss += beta_e * jnp.sum((y - scores)**2) 
-        loss += gamma_w * (w_vec_sample * w_vec_sample).sum()
-        loss -= jnp.log(w_std_vec**2).sum() + diff.dot(diff / (w_std_vec**2 + eps))
-    return 0.5 * loss
+    optimizer = make_optimizer(opt_mode, lr)
+    opt_state = optimizer.init(params)
+    loss_list = []
+    for _ in range(n_epochs):
+        params, opt_state, loss, key = update_step(
+            params, opt_state, X, y, key, w_shape, kd, fmap,
+            gamma_w, beta_e, n_samples, optimizer, loss_fn
+        )
+        loss_list.append(loss)
+    return params, loss_list
+
+def make_optimizer(opt_mode='adam', lr=1e-3):
+    if opt_mode == 'adam':
+        return optax.adam(lr)
+    else:
+        return optax.sgd(lr)
+
+@partial(jit, static_argnums=[5, 7, 10, 11, 12])
+def update_step(params, opt_state, x, y, key, w_shape, kd, fmap, gamma_w, beta_e, n_samples, optimizer, loss_fn):
+    loss_grad_fn = jax.value_and_grad(loss_fn)
+    loss_key, new_key = jax.random.split(key)
+    loss, grads = loss_grad_fn(
+        params, w_shape, kd, x, y, fmap, gamma_w, beta_e, loss_key, n_samples
+    )
+    updates, opt_state = optimizer.update(grads, opt_state, params)
+    new_params = optax.apply_updates(params, updates)
+    return new_params, opt_state, loss, new_key
+
+def l2_loss_kl_mf(params, w_shape, kd, x, y, fmap, gamma_w, beta_e, key, n_samples):
+    w_mean_vec, w_std_vec = params.m, std_transform(params.p)
+    return l2_loss_kl(
+        w_mean_vec, w_std_vec, w_shape, kd, x, y, 
+        fmap, gamma_w, beta_e, key, n_samples,
+    )
