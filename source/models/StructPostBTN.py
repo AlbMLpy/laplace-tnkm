@@ -11,6 +11,7 @@ from ..optimization import std_transform
 from ..features import Feature, PPFeature
 from ..matrix_operations import cpd_transform_vec, vec2ten3
 
+
 @struct.dataclass
 class SPBTNParams:
     md: jnp.ndarray # mean vector - data_dim

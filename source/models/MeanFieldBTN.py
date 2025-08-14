@@ -14,6 +14,7 @@ from .AbstractBTN import AbstractBTN
 from ..matrix_operations import vec2ten3
 from ..optimization import std_transform
 from ..features import Feature, PPFeature
+
 @struct.dataclass
 class MFBTNParams:
     m: jnp.ndarray  # mean vector
