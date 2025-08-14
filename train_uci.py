@@ -6,6 +6,8 @@ import jax
 jax.config.update("jax_enable_x64", True)
 
 from source.models.LaplaceCPR import LaplaceCPR
+from source.models.MeanFieldBTN import MeanFieldBTN
+from source.models.StructPostBTN import StructPostBTN
 from source.general_functions import create_dir_if_not_exists
 from source.features import PPFeature, PPNFeature, RBFFeature
 from source.data_functions import load_transform_data, load_prepare_data
@@ -27,9 +29,12 @@ from configs.uci import (
     TEST_SIZE,
     TRANSFORM_X,
     TRANSFORM_Y,
-    get_exp_config,
+    get_exp_config_la_btn,
+    get_exp_config_mf_btn,
+    get_exp_config_sp_btn,
 )
 
+MODEL_HELP = "Choose model: 'la_btn', 'mf_btn', 'sp_btn';"
 DATASET_HELP = "Choose dataset:\
     'boston', 'concrete', 'energy', 'kin8nm', 'naval',\
     'power', 'protein', 'wine_red', 'yacht';"
@@ -44,6 +49,7 @@ TQDM_HELP = "Turn on/off tqdm interactive progress line;"
 
 def argparse_uci():
     parser = argparse.ArgumentParser(description='UCI experiment')
+    parser.add_argument('model', type=str, help=MODEL_HELP)
     parser.add_argument('data', type=str, help=DATASET_HELP)
     parser.add_argument('hess', type=str, help=HESS_TYPE_HELP)
     parser.add_argument('fmap', type=str, help=FMAP_HELP)
@@ -72,8 +78,18 @@ def get_res_dir(args):
     if args.f_shift > 0:
         fmap_str += f"_sh{args.f_shift}"
     return Path(
-        ART_DIR / f'{args.data}/{args.hess}/{args.scorer}/{fmap_str}/training_artifacts/'
+        ART_DIR / f'{args.model}/{args.data}/{args.hess}/{args.scorer}/{fmap_str}/training_artifacts/'
     )
+
+def get_model_spec(model: str):
+    if model == 'la_btn':
+        return LaplaceCPR, get_exp_config_la_btn
+    elif model == 'mf_btn':
+        return MeanFieldBTN, get_exp_config_mf_btn
+    elif model == 'sp_btn':
+        return StructPostBTN, get_exp_config_sp_btn
+    else:
+        raise ValueError(f"Bad model name: {model}")
 
 if __name__ == '__main__':
     args = argparse_uci()
@@ -90,9 +106,10 @@ if __name__ == '__main__':
         transform_y=TRANSFORM_Y,
         scaler=SCALER,
     )
+    model_cls, config_f = get_model_spec(args.model)
     train_model_f = prepare_train_model(
-        get_exp_config(
-            LaplaceCPR,
+        config_f(
+            model_cls,
             n_samples,
             d_dim,
             args.data, 
