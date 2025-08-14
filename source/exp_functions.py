@@ -16,7 +16,7 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from sklearn.model_selection import cross_val_score, RepeatedKFold
 
 from .optimization import full_grid
-from .evaluation import pll, nll, rmse, norm_frob
+from .evaluation import pll, nll, rmse
 from .general_functions import update_results_dict, extend_results_dict
 
 def ll_scorer(estimator, X, y):
@@ -45,7 +45,7 @@ def restrict_options_cpr(options, n_samples, d_dim, seed: Optional[int] = None):
     rs.shuffle(options)
     final_options = []
     for option in options:
-        rank, m_order, _ = option
+        rank, m_order = option[0], option[1]
         pp = rank*m_order*d_dim
         if pp <= n_samples and pp <= 1000 and len(final_options) <= 100:
             final_options.append(option)
