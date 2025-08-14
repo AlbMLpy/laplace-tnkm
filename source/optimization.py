@@ -1,12 +1,7 @@
 from itertools import product
 
 import jax
-import numpy as np
 import jax.numpy as jnp
-from jax import jit, hessian
-
-from .evaluation import l2_gb_loss
-from .matrix_operations import ten3tovec
 
 def gd_update(w, dw, lr):
     w -= lr * dw
@@ -29,12 +24,6 @@ def std_transform(p):
 def w_sample_diag(w_mean, w_std, key):
     z = jax.random.normal(key, shape=w_mean.shape)
     return w_mean + w_std*z
-
-def hess_full_jax(w_ten, kd, x, y, fmap, gamma_w, beta_e, w_shape):
-    hess_f = jit(hessian(l2_gb_loss, argnums=0), static_argnums=(4, 7))
-    w_vec = ten3tovec(w_ten)
-    hw = hess_f(w_vec, kd, x, y, fmap, gamma_w, beta_e, w_shape)
-    return hw
 
 def full_grid(params):
     """
