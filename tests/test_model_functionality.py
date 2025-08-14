@@ -5,12 +5,12 @@ from functools import partial
 import jax
 import numpy as np
 import jax.numpy as jnp
-from jax import jit, jacrev
+from jax import jit, jacrev, hessian
 jax.config.update("jax_enable_x64", True)
 
 sys.path.append('./')
 
-from source.optimization import hess_full_jax
+from source.evaluation import l2_gb_loss
 from source.matrix_operations import vec2ten3, ten3tovec
 from source.features import PPNFeature, pure_poli_features, ppf_q2, prepare_fmap
 from source.model_functionality import (
@@ -185,6 +185,12 @@ class TestModelFunctionality(unittest.TestCase):
         self.assertTrue(jnp.allclose(actual, expected))
 
     def test_hess_full(self):
+        def hess_full_jax(w_ten, kd, x, y, fmap, gamma_w, beta_e, w_shape):
+            hess_f = jit(hessian(l2_gb_loss, argnums=0), static_argnums=(4, 7))
+            w_vec = ten3tovec(w_ten)
+            hw = hess_f(w_vec, kd, x, y, fmap, gamma_w, beta_e, w_shape)
+            return hw
+        
         n_samples, d_dim, m_order, rank = 100, 20, 3, 4
         w_ten_test, kd = jnp.array(np.random.randn(d_dim, m_order, rank)), 1
         gamma_w, beta_e = 1.5, 0.5
