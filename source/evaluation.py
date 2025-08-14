@@ -1,7 +1,9 @@
+import jax
 import jax.numpy as jnp
 
 from sklearn.metrics import root_mean_squared_error
 
+from .optimization import w_sample_diag
 from .matrix_operations import vec2ten3
 from .model_functionality import predict_score
 
@@ -23,3 +25,17 @@ def norm_frob(x):
 def l2_gb_loss(w_vec, kd, x, y, fmap, gamma_w, beta_e, w_shape):
     scores = predict_score(x, kd, vec2ten3(w_vec, *w_shape), fmap)
     return 0.5*(beta_e*jnp.sum((y - scores)**2) + gamma_w*(w_vec * w_vec).sum())
+
+def l2_loss_kl(w_mean, w_std, w_shape, kd, x, y, fmap, gamma_w, beta_e, key, n_samples):
+    """ L2 loss with closed form KL divergence. """
+    w_var = w_std**2
+    kl_term = gamma_w * (w_var.sum() + (w_mean**2).sum()) - jnp.sum(jnp.log(w_var))
+    keys = jax.random.split(key, n_samples)
+
+    def sample_loss(subkey):
+        w_sample = w_sample_diag(w_mean, w_std, subkey)
+        scores = predict_score(x, kd, vec2ten3(w_sample, *w_shape), fmap)
+        return beta_e * jnp.sum((y - scores)**2)
+    
+    likelihood_term = jax.vmap(sample_loss)(keys).sum()
+    return 0.5 * (likelihood_term + kl_term)
