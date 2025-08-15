@@ -16,7 +16,9 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from sklearn.model_selection import cross_val_score, RepeatedKFold
 
 from .optimization import full_grid
-from .evaluation import pll, nll, rmse
+from .matrix_operations import ten3tovec
+from .evaluation import pll, nll, rmse, norm_frob
+from source.model_functionality import check_zero_cols
 from .general_functions import update_results_dict, extend_results_dict
 
 def ll_scorer(estimator, X, y):
@@ -149,3 +151,54 @@ class CVTracker:
         with open(self.res_dir / f'{self.pred_name}.json', "r") as f:
             pred_dict = json.load(f)
         return res_df, cv_df, pred_dict
+    
+class Tracker:
+    def __init__(self, x_train, y_train, beta_e, gamma_w, loss, grad_w):
+        self.res_dict = defaultdict(list)
+        self.x_train = x_train
+        self.y_train = y_train
+        self.beta_e = beta_e
+        self.gamma_w = gamma_w
+        self.loss = loss
+        self.grad_w = grad_w
+
+    def track(self, w_ten, kd, fmap):
+        w_vec, w_shape = ten3tovec(w_ten), w_ten.shape
+        train_loss = self.loss(
+            w_vec, kd, self.x_train, self.y_train, 
+            fmap, self.gamma_w, self.beta_e, w_shape
+        ).item()
+        grad_norm = norm_frob(
+            self.grad_w(
+                w_vec, kd, self.x_train, self.y_train, 
+                fmap, self.gamma_w, self.beta_e, w_shape
+            )
+        ).item()
+
+        update_results_dict(self.res_dict, 
+            loss=train_loss,
+            grad_norm=grad_norm,
+        )
+
+def compute_stats_cpr(data, model, tracker):
+    x, x_test, y, y_test = data
+    ys_train, _ = model.predict(x, return_std=True)
+    ys_test, ys_std_test = model.predict(x_test, return_std=True)
+    
+    w_hess_evals = np.linalg.eigvals(model.w_hess).real
+    
+    v_check = (0, int(model.n_epoch // 2), model.n_epoch-1)
+    gd_down = [v for i, v in enumerate(tracker.res_dict['grad_norm']) if i in v_check]
+    loss_down = [v for i, v in enumerate(tracker.res_dict['loss']) if i in v_check]
+    
+    res_dict = dict(
+        rmse_train=rmse(y, ys_train), rmse_test=rmse(y_test, ys_test), 
+        nll_test=nll(ys_test, ys_std_test**2, y_test), loss=tracker.res_dict['loss'][-1], 
+        w_norm = norm_frob(model.w_ten).item(), gd_norm=tracker.res_dict['grad_norm'][-1],
+        w_new_rank=(~check_zero_cols(model.w_ten).all(axis=0)).sum().item(),
+        max_ev=max(w_hess_evals), min_ev=min(w_hess_evals), 
+        w_chol_shape=f"{model.w_cholesky.shape}", 
+        loss_down=loss_down == sorted(loss_down, reverse=True),
+        gd_down=gd_down == sorted(gd_down, reverse=True),
+    )
+    return res_dict
