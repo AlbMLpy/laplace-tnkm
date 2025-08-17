@@ -1,6 +1,8 @@
+import sys
 import argparse
 from pathlib import Path
 from functools import partial
+sys.path.append(str(Path.cwd().parents[1]))
 
 import jax
 jax.config.update("jax_enable_x64", True)
@@ -20,8 +22,7 @@ from source.exp_functions import (
 )
 from configs.uci import ( 
     SCALER,
-    CV_NAME,
-    ART_DIR, 
+    CV_NAME, 
     RES_NAME,
     N_TRIALS,
     DATA_DIR,
@@ -33,6 +34,8 @@ from configs.uci import (
     get_exp_config_mf_btn,
     get_exp_config_sp_btn,
 )
+
+ART_DIR = Path('./artifacts/training_artifacts')
 
 MODEL_HELP = "Choose model: 'la_btn', 'mf_btn', 'sp_btn';"
 DATASET_HELP = "Choose dataset:\
@@ -78,7 +81,7 @@ def get_res_dir(args):
     if args.f_shift > 0:
         fmap_str += f"_sh{args.f_shift}"
     return Path(
-        ART_DIR / f'{args.model}/{args.data}/{args.hess}/{args.scorer}/{fmap_str}/training_artifacts/'
+        ART_DIR / f'{args.model}/{args.data}/{args.hess}/{args.scorer}/{fmap_str}/'
     )
 
 def get_model_spec(model: str):

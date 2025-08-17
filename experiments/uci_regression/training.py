@@ -27,7 +27,7 @@ def get_options(model, datasets, hess_types):
         raise ValueError(f"Bad model name: {model}")
 
 def run(model_name, data_name, hess_type, fmap, shift):
-    run_str = f"python train_uci.py {model_name} {data_name} {hess_type} {fmap} -fsh {shift} -tqdm"
+    run_str = f"python train_part.py {model_name} {data_name} {hess_type} {fmap} -fsh {shift} -tqdm"
     os.system(run_str)
 
 if __name__ == "__main__":
