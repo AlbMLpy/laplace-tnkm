@@ -53,7 +53,7 @@ def restrict_options_cpr(options, n_samples, d_dim, seed: Optional[int] = None):
             final_options.append(option)
     return final_options
 
-def prepare_train_model(config: dict) -> Callable:
+def prepare_train_model(config: dict, logger=None) -> Callable:
     cv = RepeatedKFold(
         n_splits=config['cv_config']['n_splits'],
         n_repeats=config['cv_config']['n_repeats'], 
@@ -67,22 +67,31 @@ def prepare_train_model(config: dict) -> Callable:
         config['data_config']['d_dim'], 
         config['data_config']['seed'],
     )
+    n_options = len(options)
 
     def train_model(x, y):
         all_scores = []
-        for option in tqdm(options, disable=(not config['tqdm_enable'])):
+        disable = (not config['tqdm_enable'])
+        for idx_opt, option in tqdm(enumerate(options, 1), disable=disable, total=n_options):
+            if logger: logger.info(f"##CV option {idx_opt}/{n_options} has started:")
             model_params = dict(zip(option_names, option)) | config['par_fixed']
             model = model_factory(config['model_cls'], model_params, config['scaler'])
+            start_time = time()
             scores = cross_val_score(model, x, y, cv=cv,
                 scoring=config['cv_config']['scorer'], 
                 n_jobs=config['cv_config']['n_jobs']
             )
+            elapsed_time = time() - start_time
+            if logger: logger.info(f"##Elapsed time={elapsed_time:.3f}")
             all_scores.append(np.mean(scores))
             
             jax.clear_caches() # To free cache memory
             gc.collect()
 
-        model_info = dict(scores=all_scores, **{k:list(v) for k, v in zip(option_names, list(zip(*options)))})
+        model_info = dict(
+            scores=all_scores, 
+            **{k:list(v) for k, v in zip(option_names, list(zip(*options)))}
+        )
         best_option = options[np.argmax(all_scores)]
         model_params = dict(zip(option_names, best_option)) | config['par_fixed']
         model = model_factory(config['model_cls'], model_params, config['scaler'])
@@ -96,8 +105,10 @@ def get_stats_several_trials(
     tracker: object,
     n_trials: int = 10,
     tqdm_disable: bool = False,
+    logger = None,
 ) -> None:
     for trial in tqdm(range(1, n_trials + 1), disable=tqdm_disable):
+        if logger: logger.info(f"#Trial {trial}/{n_trials} has started.")
         x_train, x_test, y_train, y_test = load_data(split_seed=trial)
         x_train, x_test, y_train, y_test = map(jnp.array, [x_train, x_test, y_train, y_test])
         model, model_info = train_model_time(train_model, x_train, y_train)

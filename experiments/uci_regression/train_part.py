@@ -1,6 +1,8 @@
 import sys
+import logging
 import argparse
 from pathlib import Path
+from datetime import datetime
 from functools import partial
 sys.path.append(str(Path.cwd().parents[1]))
 
@@ -35,6 +37,7 @@ from configs.uci import (
     get_exp_config_sp_btn,
 )
 
+LOG_DIR = Path('./artifacts/logs')
 ART_DIR = Path('./artifacts/training_artifacts')
 
 MODEL_HELP = "Choose model: 'la_btn', 'mf_btn', 'sp_btn';"
@@ -74,14 +77,14 @@ def get_scorer(scorer):
     elif scorer == 'nrmse': return nrmse_scorer
     else: raise ValueError()
 
-def get_res_dir(args):
+def get_res_dir(args, dir_path=ART_DIR):
     fmap_str = f"{args.fmap}"
     if args.fmap == 'fourier':
         fmap_str += f"_ls{args.f_scale}"
     if args.f_shift > 0:
         fmap_str += f"_sh{args.f_shift}"
     return Path(
-        ART_DIR / f'{args.model}/{args.data}/{args.hess}/{args.scorer}/{fmap_str}/'
+        dir_path / f'{args.model}/{args.data}/{args.hess}/{args.scorer}/{fmap_str}/'
     )
 
 def get_model_spec(model: str):
@@ -93,9 +96,27 @@ def get_model_spec(model: str):
         return StructPostBTN, get_exp_config_sp_btn
     else:
         raise ValueError(f"Bad model name: {model}")
+    
+def setup_logger(args):
+    log_dir = get_res_dir(args, LOG_DIR)
+    create_dir_if_not_exists(log_dir)
+    log_file = str(log_dir / f"{datetime.now().strftime('%Y%m%d')}.log")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(message)s",
+        handlers=[
+            logging.FileHandler(log_file, mode='w'),
+        ]
+    )
+    logger = logging.getLogger(__name__)
+    logging.getLogger("jax").setLevel(logging.WARNING)
+    logging.getLogger("jax._src.xla_bridge").setLevel(logging.ERROR)
+    logging.getLogger("jax._src").setLevel(logging.WARNING)
+    return logger
 
 if __name__ == '__main__':
     args = argparse_uci()
+    logger = setup_logger(args)
     data_path = DATA_DIR / f'{args.data}.csv'
     n_samples, d_dim = load_prepare_data(data_path, TEST_SIZE, None)[0].shape
     res_dir = get_res_dir(args)
@@ -120,10 +141,11 @@ if __name__ == '__main__':
             get_fmap(args.fmap, args.f_scale, args.f_shift),
             get_scorer(args.scorer),
             args.tqdm_enable,
-        )
+        ),
+        logger=logger,
     )
     get_stats_several_trials(
         load_data_f, train_model_f, tracker, N_TRIALS, 
-        tqdm_disable=(not args.tqdm_enable)
+        tqdm_disable=(not args.tqdm_enable), logger=logger,
     )
     tracker.save()
