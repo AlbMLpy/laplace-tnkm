@@ -23,6 +23,7 @@ def get_options(model, datasets, hess_types):
     if model == 'la_btn':
         return [(model, *v) for v in product(datasets, hess_types)]
     elif model in MODELS:
+        datasets = [v for v in datasets if v != 'protein'] # Faster reproducibility
         return [(model, data, 'mf') for data in datasets]
     else:
         raise ValueError(f"Bad model name: {model}")
