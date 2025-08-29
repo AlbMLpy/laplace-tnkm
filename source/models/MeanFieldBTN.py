@@ -22,8 +22,75 @@ class MFBTNParams:
 
 class MeanFieldBTN(AbstractBTN):
     """
-    Mean-Field Variational Inference for Bayesian Tensor Networks.
+    Mean-Field Variational Inference for Bayesian Tensor Networks (MF-BTN).
+
+    Currently, the implementation is restricted to using the canonical
+    polyadic decomposition (CPD).
+
+    Parameters
+    ----------
+    rank : int, default=1
+        Rank of the CPD weights tensor.
+
+    fmap : Feature, default=PPFeature()
+        Nonlinear data mapping to get new features. 
+        Other options can be: [PPNFeature, RBFFeature].
+
+    m_order : int, default=2
+        The number of newly generated features per data feature, x_d.
+        E.g., in case of 'PPFeature', m_order is the order of the polynomial.
+
+    n_epoch : int, default=1
+        The number gradient descent epochs.
+
+    beta_e : float, optional, default=1.0
+        Noise precision hyperparameter. If 'beta_e=None' the hyperparameter 
+        is evaluated with variational inference.
+
+    gamma_w : float, optional, default=1.0
+        Prior precision hyperparameter. If 'gamma_w=None' the hyperparameter 
+        is evaluated with variational inference. 
+
+    seed : int, optional, default=None
+        Determines random number generation used to initialize 
+        the model parameters. Pass an int for reproducible results.
+
+    opt_params : dict, optional, None
+        Optimizer parameters of the form: {'train_mode': mode, 'lr': float}, 
+        where mode='adam', 'sgd'. If None, then the default config is used:
+        {'train_mode': 'sgd', 'lr': 1e-3}.
+
+    n_epoch_vi : int, default=1
+        The number of variational inference updates of 
+        the model parameters: w_ten, beta_e, gamma_w.
+
+    pd_samples : int, default=30
+        The number samples to estimate the expectation
+        (predictive distribution) with Monte Carlo sampling.
+
+    beta_e_samples : int, default=10
+        Determines the number of samples used to estimate the noise precision.
+
+    tracker : Tracker object, optional, default=None
+        This object can be used to gather useful statistics during training.
+        If 'tracker=None' then no tracking is used. 
+
+    n_loss_samples : int, default=30
+        The number of samples used to estimate the variational loss.
+
+    Attributes
+    ----------
+    params : MFBTNParams
+        Dataclass containing the following attributes: 
+        - m: array - mean vector;
+        - p: array - log-std vector;
+
+    References
+    ---------- 
+    - "Bayesian Tensor Networks with Structured Posteriors", 
+        Kriton Konstantinidis, Yao Lei Xu, Danilo P. Mandic. 2021.
     """
+
     def __init__(
         self, 
         rank: int = 1, 
@@ -46,9 +113,30 @@ class MeanFieldBTN(AbstractBTN):
         )
         self.n_loss_samples = n_loss_samples
         self._loss = l2_loss_kl_mf
-        self._loss_key = jax.random.PRNGKey(np.random.RandomState(seed).randint(1e18))
+        self._loss_key = jax.random.PRNGKey(
+            np.random.RandomState(seed).randint(1e18)
+        )
 
     def fit(self, X, y, xy_test: Optional[tuple] = None):
+        """
+        Fit Bayesian tensor network model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, d_dim)
+            Training data matrix.
+
+        y : array-like of shape (n_samples,)
+            Target values.
+
+        xy_test : tuple, optional, default=None
+            Test dataset.
+
+        Returns
+        -------
+        self : object
+            MeanFieldBTN class instance.
+        """
         X, y = check_X_y(X, y)
         X, y = jnp.array(X), jnp.array(y)
         self.w_shape = (X.shape[-1], self.m_order, self.rank)
@@ -68,7 +156,9 @@ class MeanFieldBTN(AbstractBTN):
         return self
 
     def _init_params(self):
-        key = jax.random.PRNGKey(np.random.RandomState(self.seed).randint(1e18))
+        key = jax.random.PRNGKey(
+            np.random.RandomState(self.seed).randint(1e18)
+        )
         key, subkey = jax.random.split(key)
         return MFBTNParams(
             0.5*jax.random.normal(key, (np.prod(self.w_shape),)),
@@ -76,7 +166,10 @@ class MeanFieldBTN(AbstractBTN):
         )
 
     def _update_w(self, X, y, key, xy_test: Optional[tuple] = None):
-        if xy_test: raise NotImplementedError("Test-time updates not implemented.")
+        """ Update CPD weights (mean) and diagonal covariance matrix. """
+        if xy_test: raise NotImplementedError(
+            "Test-time updates not implemented."
+        )
         self.params, loss_list = train(
             self.params, X, y, key, self.w_shape, self.kd, self._fmap, 
             self.gamma_w, self.beta_e, self.n_epoch, self.n_loss_samples, 
@@ -93,6 +186,7 @@ def train(
     params, X, y, key, w_shape, kd, fmap, gamma_w, beta_e, 
     n_epochs, n_samples, opt_mode, lr, loss_fn
 ):
+    """ The main training loop for gradient-based models. """
     optimizer = make_optimizer(opt_mode, lr)
     opt_state = optimizer.init(params)
     loss_list = []
@@ -111,7 +205,22 @@ def make_optimizer(opt_mode='adam', lr=1e-3):
         return optax.sgd(lr)
 
 @partial(jit, static_argnums=[5, 7, 10, 11, 12])
-def update_step(params, opt_state, x, y, key, w_shape, kd, fmap, gamma_w, beta_e, n_samples, optimizer, loss_fn):
+def update_step(
+    params, 
+    opt_state, 
+    x, 
+    y, 
+    key, 
+    w_shape, 
+    kd, 
+    fmap, 
+    gamma_w, 
+    beta_e, 
+    n_samples, 
+    optimizer, 
+    loss_fn
+):
+    """ Update parameters of the gradient-based model. """
     loss_grad_fn = jax.value_and_grad(loss_fn)
     loss_key, new_key = jax.random.split(key)
     loss, grads = loss_grad_fn(
@@ -121,7 +230,19 @@ def update_step(params, opt_state, x, y, key, w_shape, kd, fmap, gamma_w, beta_e
     new_params = optax.apply_updates(params, updates)
     return new_params, opt_state, loss, new_key
 
-def l2_loss_kl_mf(params, w_shape, kd, x, y, fmap, gamma_w, beta_e, key, n_samples):
+def l2_loss_kl_mf(
+    params, 
+    w_shape, 
+    kd, 
+    x, 
+    y, 
+    fmap, 
+    gamma_w, 
+    beta_e, 
+    key, 
+    n_samples
+):
+    """ Compute variational loss function in MF-BTN case. """
     w_mean_vec, w_std_vec = params.m, std_transform(params.p)
     return l2_loss_kl(
         w_mean_vec, w_std_vec, w_shape, kd, x, y, 

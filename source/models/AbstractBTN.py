@@ -60,6 +60,34 @@ class AbstractBTN(ABC, RegressorMixin, BaseEstimator):
         pass
 
     def predict(self, X, return_std=False, std_use_noise=True):
+        """
+        Predict using the Bayesian tensor network model.
+
+        In addition to the mean of the predictive distribution, optionally also
+        returns its standard deviation ('return_std=True') and adds 
+        the Gaussian additive noise std ('std_use_noise=True').
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, d_dim) 
+            Query points where the model is evaluated.
+
+        return_std : bool, default=False
+            If True, the standard-deviation of the predictive distribution at
+            the query points is returned along with the mean.
+
+        std_use_noise : bool, default=True
+            If True, adds Gaussian noise defined by the beta_e hyperparameter.
+
+        Returns
+        -------
+        y_mean : ndarray of shape (n_samples,)
+            Mean of predictive distribution at query points.
+
+        y_std : ndarray of shape (n_samples,), optional
+            Standard deviation of predictive distribution at query points.
+            Only returned when `return_std` is True.
+        """
         X = check_array(X)
         check_is_fitted(self, 'is_fitted_')
         pred_mean = self._predict_mean(X)
@@ -69,12 +97,30 @@ class AbstractBTN(ABC, RegressorMixin, BaseEstimator):
         return pred_mean
     
     def score(self, X, y):
+        """
+        Return coefficient of determination, R^2, on test data.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, d_dim)
+            Test samples.
+
+        y : array-like of shape (n_samples,)
+            True values for X.
+
+        Returns
+        -------
+        score : float
+            R^2 of self.predict(X) w.r.t. y.
+        """
         return r2_score(y, self.predict(X))
     
     def _predict_mean(self, X):
+        """ Compute mean of the predictive distribution. """
         return predict_score(X, self.kd, self.w_mean, self._fmap)
 
     def _update_beta_e(self, X, y):
+        """ Update Gaussian additive noise precision, beta_e. """
         if self._beta_e_sample_seed:
             self._beta_e_sample_seed += 1
         self.cn, self.dn, self.beta_e = update_beta_e(
@@ -86,11 +132,13 @@ class AbstractBTN(ABC, RegressorMixin, BaseEstimator):
         )
 
     def _update_gamma_w(self):
+        """ Update Gaussian prior weights precision, gamma_w. """
         self.an, self.bn, self.gamma_w = update_gamma_w(
             self.an, self.bn, self.w_cholesky, self.w_mean
         )
     
     def _predict_std(self, X, std_use_noise):
+        """ Compute standard deviation of the predictive distribution. """
         beta_e = self.beta_e if std_use_noise else None
         return predict_std(
             self.w_mean, self.w_cholesky, self.kd, 
