@@ -17,17 +17,13 @@ For real-data experiments, we use the following nine UCI regression datasets (Du
 | **D - Data Dim.** | 13 | 8 | 8 | 8 | 16 | 4 | 9 | 11 | 6 |
 
 ## ⚙️ Environment
-We use `conda` package manager to install required python packages. Once `conda is installed`, run the following command (while in the root of the repository):
+We use `conda` package manager to install required python packages. Once `conda is installed`, **run** the following command (while in the root of the repository):
+```shell
+conda env create -f environment/environment.yml
 ```
-conda env create -f environment/environment.yaml
-```
-This will create a new environment named `bayes_env` with all required packages already installed. You can install additional packages by running:
-```
+This will create a new environment named `bayes_env` with all required packages already installed. You can **install** additional packages by running:
+```shell
 conda install <package name>
-```
-To activate the virtual environment:
-```
-conda activate bayes_env
 ```
 
 In order to read and run `Jupyter Notebooks` you may follow either of two options:
@@ -37,13 +33,16 @@ In order to read and run `Jupyter Notebooks` you may follow either of two option
 
 ## 🚀 How to Reproduce the Numerical Experiments
 
-0. Create and activate the virtual environment (Environment section).
+0. **Activate** the virtual environment:
+    ```shell
+    conda activate bayes_env
+    ```
 
 1. **Run:**
    ```shell
    python setup_project.py
    ```
-   to download 9 datasets and configure the project directories. 
+   to download all datasets and configure the project directories. 
 
 2. Once the setup script has completed, **run:**
     ```shell
