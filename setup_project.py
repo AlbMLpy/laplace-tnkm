@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 
 DATA_DIR = Path('data')
-ARTIFACTS_DIR = Path('artifacts')
 DATA2ID = {'energy': 242, 'concrete': 165, 'power': 294}
 UCI_PART = 'https://archive.ics.uci.edu/static/public/'
 
@@ -23,22 +22,20 @@ def load_data():
 
 def load_uci(data_name: str) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    from ucimlrepo import fetch_ucirepo 
-    print(f'{data_name} data download started') 
+    from ucimlrepo import fetch_ucirepo  
     dataset = fetch_ucirepo(id=DATA2ID[data_name]) 
     x, y = dataset.data.features, dataset.data.targets 
     yv = y.values[:, 0] if y.ndim > 1 else y.values
     x = x.assign(target=yv)
     x.to_csv(DATA_DIR / f'{data_name}.csv', index=None)
-    print(f'{data_name} data download finished')
+    print(f'{data_name.capitalize()} Dataset downloaded ✅')
 
 def _load_url(url: str, name_data: str) -> str:
     # Create data dir if not exists:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    print(f'{name_data} data download started')
     temp_file = DATA_DIR / 'temp.zip'
     urllib.request.urlretrieve(url, filename=temp_file)
-    print(f'{name_data} data download finished')
+    print(f'{name_data.capitalize()} Dataset downloaded ✅')
     return temp_file
 
 def load_airline(path_raw: str):
@@ -203,9 +200,6 @@ def load_census_income():
     tf2.unlink(missing_ok=True)
     tf3.unlink(missing_ok=True) 
 
-def prepare_dir():
-    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
-
 if __name__ == '__main__':
     load_data()
-    prepare_dir()
+    print("🎉 Setup complete.")
