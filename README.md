@@ -73,7 +73,7 @@ In order to read and run `Jupyter Notebooks` you may follow either of two option
         ```bash
         python training.py model 'all'
         ```
-        Computes evaluation metrics and predictions for further comparison. These are stored in `artifacts/training_artifacts`. Use `python training.py -h` to see all options (e.g., parallel/sequential mode and `n_jobs`).
+        Computes evaluation metrics and predictions for further comparison. These are stored in `artifacts/training_artifacts`. Use `python training.py --help` to see all options (e.g., parallel/sequential mode and `n_jobs`).
     -  **Analyze:** Run `analysis.ipynb` in VS Code using the `bayes_env` environment, or open it with `jupyter lab` to generate the final table for comparison.
 
 
