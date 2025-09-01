@@ -11,10 +11,12 @@ We propose *a novel Bayesian Tensor Network Kernel Machine (LA-TNKM)* that emplo
 
 ## 📊 Datasets
 For real-data experiments, we use the following nine UCI regression datasets (Dua and Graff, 2017):
+<small>
 |  | Boston | Concrete | Energy | Kin8nm | Naval | Power | Protein | Red Wine | Yacht |
 | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | -------------| -------------| -------------|
 | **N - Sample Size** | 506 | 1030 | 768 | 8192 | 11934 | 9568 | 45730 | 1588 | 308 |
 | **D - Data Dim.** | 13 | 8 | 8 | 8 | 16 | 4 | 9 | 11 | 6 |
+</small>
 
 ## ⚙️ Environment
 We use `conda` package manager to install required python packages. Once `conda is installed`, **run** the following command (while in the root of the repository):
