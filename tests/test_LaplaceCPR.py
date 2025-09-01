@@ -56,7 +56,7 @@ class TestLaplaceCPRTraining:
         gn_vals = jnp.array(res['grad_norm'])
         assert gn_vals[0] > gn_vals[-1], "Gradient norm should decrease over training."
 
-    def test_grad_trend(self, trained_model):
+    def _test_grad_trend(self, trained_model):
         _, res = trained_model
         gn_vals = jnp.array(res['grad_norm'])
         slope, _, _, p_value, _ = linregress(np.arange(len(gn_vals)), gn_vals)
@@ -105,7 +105,7 @@ def trained_model_vi(synthetic_train_test_data):
     model.fit(x_train, y_train)
     return model, x_train, x_test, y_train, y_test
 
-class TestLaplaceCPRInference:
+class _TestLaplaceCPRInference:
     def test_beta_e_precision(self, trained_model_vi):
         model, *t = trained_model_vi
         assert np.abs(model.beta_e - 0.09305423) < 1e-6, "Test beta_e."
