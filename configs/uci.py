@@ -1,15 +1,28 @@
 from pathlib import Path
 from typing import Callable
 
+FMAP, FSHIFT = 'poly_norm', 0.0
+MODELS = ['la_btn', 'mf_btn', 'sp_btn']
+HESS_TYPES = ['last', 'block', 'gauss_newton']
+DATASETS = [
+    'yacht', 'energy', 'concrete', 'wine_red', 
+    'kin8nm', 'naval', 'power', 'protein', 'boston',
+]
+
 DATA_DIR = Path.cwd().parents[1] / 'data'
-N_TRIALS, TEST_SIZE, DATA_SEED = 10, 0.1, 15
+N_TRIALS = 10
+DATA_SEED = 15
+TEST_SIZE = 0.1
 TRANSFORM_X, TRANSFORM_Y, SCALER = False, True, 'std'
 RES_NAME, CV_NAME, PRED_NAME = 'results', 'cv_train', 'predictions'
 
+N_EPOCH_VI = 5
+GD_EPOCHS = 100
+ALS_EPOCHS = 10
+BETA_E, GAMMA_W = None, 1e-5
+HESS_THS = [1e-5, 1e-3, 1e-1]
 RANKS = [2, 4, 8, 16, 24, 32, 48, 64]
 M_ORDERS = [2, 4, 8, 16, 24, 32, 48, 64]
-HESS_THS = [1e-5, 1e-3, 1e-1]
-BETA_E, GAMMA_W, N_EPOCH_VI = None, 1e-5, 5
 CV_CONFIG = dict(n_splits=3, n_repeats=2, seed=1, n_jobs=1)
 
 def get_exp_config_la_btn(
@@ -26,7 +39,7 @@ def get_exp_config_la_btn(
         model_cls=model_cls,
         scaler=SCALER,
         par_fixed=dict(
-            fmap=fmap, n_epoch=10, beta_e=BETA_E, gamma_w=GAMMA_W,
+            fmap=fmap, n_epoch=ALS_EPOCHS, beta_e=BETA_E, gamma_w=GAMMA_W,
             seed=13, pd_mode='lla', hess_type=hess_type, pd_sample_seed=14,
             n_epoch_vi=N_EPOCH_VI,
         ),
@@ -53,7 +66,7 @@ def get_exp_config_mf_btn(
         model_cls=model_cls,
         scaler=SCALER,
         par_fixed=dict(
-            fmap=fmap, n_epoch=100, beta_e=BETA_E, gamma_w=GAMMA_W, 
+            fmap=fmap, n_epoch=GD_EPOCHS, beta_e=BETA_E, gamma_w=GAMMA_W, 
             seed=13, opt_params={'train_mode': 'adam', 'lr': 2e-3},
             n_epoch_vi=N_EPOCH_VI,
         ),
@@ -80,7 +93,7 @@ def get_exp_config_sp_btn(
         model_cls=model_cls,
         scaler=SCALER,
         par_fixed=dict(
-            fmap=fmap, n_epoch=100, beta_e=BETA_E, gamma_w=GAMMA_W, 
+            fmap=fmap, n_epoch=GD_EPOCHS, beta_e=BETA_E, gamma_w=GAMMA_W, 
             seed=13, opt_params={'train_mode': 'adam', 'lr': 2e-3},
             n_epoch_vi=N_EPOCH_VI, m_rank=16,
         ),

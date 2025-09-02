@@ -1,12 +1,18 @@
 import os
+import sys
 import argparse
+from pathlib import Path
 from itertools import product, chain
 from joblib import Parallel, delayed
+sys.path.append(str(Path.cwd().parents[1]))
 
-FMAP, FSHIFT = 'poly_norm', 0.0
-MODELS = ['la_btn', 'mf_btn', 'sp_btn']
-DATASETS = ['yacht', 'energy', 'concrete', 'wine_red', 'kin8nm', 'naval', 'power', 'protein', 'boston']
-HESS_TYPES = ['last', 'block', 'gauss_newton']
+from configs.uci import ( 
+    FMAP,
+    FSHIFT,
+    MODELS,
+    DATASETS,
+    HESS_TYPES,
+)
 
 MODEL_HELP = "Choose model: 'all', 'la_btn', 'mf_btn', 'sp_btn';"
 PARALLEL_HELP = "Turn on/off parallel mode;"
