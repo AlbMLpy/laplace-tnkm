@@ -28,3 +28,4 @@ dependencies:
       - requests-oauthlib==2.0.0
       - seaborn==0.13.2
       - ucimlrepo==0.0.7
+      - nbconvert==7.16.6
