@@ -1,5 +1,6 @@
 import os
 import zipfile
+import subprocess
 import urllib.request
 from pathlib import Path
 
@@ -200,6 +201,27 @@ def load_census_income():
     tf2.unlink(missing_ok=True)
     tf3.unlink(missing_ok=True) 
 
+def in_docker():
+    if os.path.exists("/.dockerenv"):
+        return True
+    try:
+        with open("/proc/1/cgroup", "rt") as f:
+            for line in f:
+                if "docker" in line or "kubepods" in line:
+                    return True
+    except FileNotFoundError:
+        pass
+    return False
+
 if __name__ == '__main__':
     load_data()
+    if in_docker():
+        print("🐋 You are running in Docker. Preparing analysis.py files.")
+        exp_dir = "./experiments/"
+        for nb_dir in ['ablation_study', 'uci_regression', 'uncertainty_synthetic']:
+            subprocess.run(
+                ["jupyter", "nbconvert", "--to", "script", 'analysis.ipynb'],
+                cwd=exp_dir + nb_dir,
+                check=True
+            )
     print("🎉 Setup complete.")
