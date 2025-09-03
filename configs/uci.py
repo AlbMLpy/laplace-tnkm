@@ -1,4 +1,3 @@
-from pathlib import Path
 from typing import Callable
 
 FMAP, FSHIFT = 'poly_norm', 0.0
@@ -9,7 +8,6 @@ DATASETS = [
     'kin8nm', 'naval', 'power', 'protein', 'boston',
 ]
 
-DATA_DIR = Path.cwd().parents[1] / 'data'
 N_TRIALS = 10
 DATA_SEED = 15
 TEST_SIZE = 0.1
@@ -29,7 +27,7 @@ def get_exp_config_la_btn(
     model_cls,
     n_samples: int,
     d_dim: int,
-    data_name: str, 
+    data_path: str, 
     hess_type: str, 
     fmap: tuple, 
     scorer: Callable,
@@ -46,7 +44,7 @@ def get_exp_config_la_btn(
         par_flexible=dict(rank=RANKS, m_order=M_ORDERS, hess_th=HESS_THS),
         cv_config=CV_CONFIG | dict(scorer=scorer),
         data_config=dict(
-            data_path=DATA_DIR / f'{data_name}.csv', n_samples=n_samples,
+            data_path=data_path, n_samples=n_samples,
             d_dim=d_dim, test_size=TEST_SIZE, seed=DATA_SEED,
         ),
         tqdm_enable=tqdm_enable,
@@ -56,7 +54,7 @@ def get_exp_config_mf_btn(
     model_cls,
     n_samples: int,
     d_dim: int,
-    data_name: str, 
+    data_path: str, 
     hess_type: str, 
     fmap: tuple, 
     scorer: Callable,
@@ -73,7 +71,7 @@ def get_exp_config_mf_btn(
         par_flexible=dict(rank=RANKS, m_order=M_ORDERS),
         cv_config=CV_CONFIG | dict(scorer=scorer),
         data_config=dict(
-            data_path=DATA_DIR / f'{data_name}.csv', n_samples=n_samples, 
+            data_path=data_path, n_samples=n_samples, 
             d_dim=d_dim, test_size=TEST_SIZE, seed=DATA_SEED,
         ),
         tqdm_enable=tqdm_enable,
@@ -83,7 +81,7 @@ def get_exp_config_sp_btn(
     model_cls,
     n_samples: int,
     d_dim: int,
-    data_name: str, 
+    data_path: str, 
     hess_type: str, 
     fmap: tuple, 
     scorer: Callable,
@@ -100,7 +98,7 @@ def get_exp_config_sp_btn(
         par_flexible=dict(rank=RANKS, m_order=M_ORDERS),
         cv_config=CV_CONFIG | dict(scorer=scorer),
         data_config=dict(
-            data_path=DATA_DIR / f'{data_name}.csv', n_samples=n_samples, 
+            data_path=data_path, n_samples=n_samples, 
             d_dim=d_dim, test_size=TEST_SIZE, seed=DATA_SEED,
         ),
         tqdm_enable=tqdm_enable,

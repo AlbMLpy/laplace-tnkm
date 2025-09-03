@@ -27,7 +27,6 @@ from configs.uci import (
     CV_NAME, 
     RES_NAME,
     N_TRIALS,
-    DATA_DIR,
     PRED_NAME,
     TEST_SIZE,
     TRANSFORM_X,
@@ -37,6 +36,7 @@ from configs.uci import (
     get_exp_config_sp_btn,
 )
 
+DATA_DIR = Path.cwd().parents[1] / 'data'
 LOG_DIR = Path('./artifacts/logs')
 ART_DIR = Path('./artifacts/training_artifacts')
 
@@ -136,7 +136,7 @@ if __name__ == '__main__':
             model_cls,
             n_samples,
             d_dim,
-            args.data, 
+            data_path, 
             args.hess, 
             get_fmap(args.fmap, args.f_scale, args.f_shift),
             get_scorer(args.scorer),
