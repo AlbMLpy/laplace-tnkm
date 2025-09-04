@@ -7,7 +7,8 @@ from jax import jit, grad
 jax.config.update("jax_enable_x64", True)
 
 import numpy as np
-from scipy.stats import linregress
+from sklearn.datasets import make_friedman2
+from sklearn.model_selection import train_test_split
 
 sys.path.append('./')
 
@@ -56,12 +57,6 @@ class TestLaplaceCPRTraining:
         gn_vals = jnp.array(res['grad_norm'])
         assert gn_vals[0] > gn_vals[-1], "Gradient norm should decrease over training."
 
-    def _test_grad_trend(self, trained_model):
-        _, res = trained_model
-        gn_vals = jnp.array(res['grad_norm'])
-        slope, _, _, p_value, _ = linregress(np.arange(len(gn_vals)), gn_vals)
-        assert slope < 0 and p_value < 0.1, f"Expected downward trend, got slope={slope}."
-
     def test_grad_moving_avg_decrease(self, trained_model):
         _, res = trained_model
         gn_vals = jnp.array(res['grad_norm'])
@@ -78,14 +73,9 @@ class TestLaplaceCPRTraining:
 
 @pytest.fixture(scope='module')
 def synthetic_train_test_data():
-    d_dim, std_err, data_seed = 6, 3, 13
-    x_train, y_train, _ = generate_x3_data(
-        500, d_dim, std_err=std_err, seed=data_seed
-    )
-    x_test, y_test, _ = generate_x3_data(
-        100, d_dim, min_v=-5, max_v=5, 
-        std_err=std_err, seed=data_seed + 10
-    )
+    X, y = make_friedman2(n_samples=600, noise=1, random_state=0)
+    x_train, x_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.16, random_state=42)
     return scale_data(
         x_train, x_test, y_train, y_test, True, False, 'std'
     )
@@ -97,18 +87,18 @@ def trained_model_vi(synthetic_train_test_data):
     """
     x_train, x_test, y_train, y_test = synthetic_train_test_data
     model = LaplaceCPR(
-        rank=4, fmap=PPNFeature(), m_order=8, n_epoch=10,
-        beta_e=None, gamma_w=1e-3, pd_mode='lla', hess_type='gauss_newton',
-        hess_th=1e-4, seed=13, n_epoch_vi=10, pd_samples=30,
+        rank=10, fmap=PPNFeature(), m_order=40, n_epoch=5,
+        beta_e=None, gamma_w=1e-2, pd_mode='lla', hess_type='gauss_newton',
+        hess_th=1e-4, seed=13, n_epoch_vi=5, pd_samples=30,
         pd_sample_seed=14, beta_e_samples=10, tracker=None
     )
     model.fit(x_train, y_train)
     return model, x_train, x_test, y_train, y_test
 
-class _TestLaplaceCPRInference:
+class TestLaplaceCPRInference:
     def test_beta_e_precision(self, trained_model_vi):
         model, *t = trained_model_vi
-        assert np.abs(model.beta_e - 0.09305423) < 1e-6, "Test beta_e."
+        assert np.abs(model.beta_e - 0.0012559593826733933) < 1e-6, "Test beta_e."
 
     def test_predictions_train(self, trained_model_vi):
         model, x_train, _, y_train, _ = trained_model_vi
@@ -117,19 +107,19 @@ class _TestLaplaceCPRInference:
             ys_train[:5], 
             jnp.array(
                 [
-                    -377.25047459, -372.35587553, -366.40358666, 
-                    -363.34453375, -356.68822232
+                    255.19251534, 276.18790578, 68.0296712, 
+                    985.63203343, 864.4092941,
                 ]
             )
         ), "Check train predictions."
         assert jnp.allclose(
             ys_std_train[25:30], 
             jnp.array(
-                [5.01957394, 4.92824082, 4.66262448, 4.78803918, 4.84689877]
+                [52.76310199, 54.01172493, 54.91641517, 48.10949895, 59.84558336]
             )
         ), "Check train standard deviations."
-        assert np.abs(nll(ys_train, ys_std_train, y_train) - 2.51596445) < 1e-6, "Check train NLL."
-        assert np.abs(rmse(ys_train, y_train) - 2.797145237) < 1e-6, "Check train RMSE."
+        assert np.abs(nll(ys_train, ys_std_train, y_train) - 3.944720961294799) < 1e-6, "Check train NLL."
+        assert np.abs(rmse(ys_train, y_train) - 10.13339733679119) < 1e-6, "Check train RMSE."
 
     def test_predictions_test(self, trained_model_vi):
         model, _, x_test, _, y_test = trained_model_vi
@@ -137,17 +127,14 @@ class _TestLaplaceCPRInference:
         assert jnp.allclose(
             ys_test[:5], 
             jnp.array(
-                [74.2689836, -6.76248461, -58.02371211, -69.34625558, -27.54378316]
+                [1307.79359793, 58.89693868, 647.76475851, 147.0238254, 1047.88973784]
             )
         ), "Check test predictions."
         assert jnp.allclose(
             ys_std_test[25:30], 
             jnp.array(
-                [
-                    75.70363955, 150.49387316, 251.61576873, 
-                    390.7567235, 351.54011781
-                ]
+                [44.17971735, 57.68131017, 160.90904765, 73.31568165, 110.54801714]
             )
         ), "Check test standard deviations."
-        assert np.abs(nll(ys_test, ys_std_test, y_test) - 30.4807577) < 1e-6, "Check test NLL."
-        assert np.abs(rmse(ys_test, y_test) - 210.41505396) < 1e-6, "Check test RMSE."
+        assert np.abs(nll(ys_test, ys_std_test, y_test) - 36.452781010913284) < 1e-6, "Check test NLL."
+        assert np.abs(rmse(ys_test, y_test) - 143.59825508467918) < 1e-6, "Check test RMSE."
