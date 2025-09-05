@@ -2,23 +2,21 @@ Linearized Laplace Approximation in Bayesian Tensor Network Kernel Machines
 =====
 
 ## ✨ Project Description
-Uncertainty estimation is critical for robust decision making in the presence of ambiguous or out-of-distribution inputs.
-Gaussian Process (GP) is a classic kernel-based approach that provides uncertainty quantification and performs well on small to medium scale datasets.
-Alternatively, formulating the primal learning problem under tensor network assumptions leads to scalable tensor network kernel machines.
-This reformulation raises a fundamental question: *how can tensor network kernel machines be extended for probabilistic inference and uncertainty quantification?*
+Uncertainty estimation is essential for robust decision-making in the presence of ambiguous or out-of-distribution inputs. Gaussian Processes (GPs) are classical kernel-based models that offer principled uncertainty quantification and perform well on small- to medium-scale datasets. 
+Alternatively, formulating the weight space learning problem under tensor network assumptions yields scalable tensor network kernel machines.
+However, these assumptions break Gaussianity, complicating standard probabilistic inference. This raises a fundamental question: *how can tensor network kernel machines provide principled uncertainty estimates?*
 
-We propose *a novel Bayesian Tensor Network Kernel Machine (LA-TNKM)* that employs *a (linearized) Laplace approximation for Bayesian inference*. A comprehensive set of numerical experiments shows that the proposed method consistently matches or surpasses Gaussian Processes and Bayesian Neural Networks (BNNs) across diverse UCI regression benchmarks, highlighting both its effectiveness and practical relevance. 
+We propose *a novel Bayesian Tensor Network Kernel Machine (LA-TNKM)* that employs *a (linearized) Laplace approximation for Bayesian inference*. A comprehensive set of numerical experiments shows that the proposed method consistently matches or surpasses Gaussian Processes and Bayesian Neural Networks (BNNs) across diverse UCI regression benchmarks, highlighting both its effectiveness and practical relevance.
 
 ## 📊 Datasets
 For real-data experiments, we use the following nine UCI regression datasets (Dua and Graff, 2017):
-<small>
 
 |  | Boston | Concrete | Energy | Kin8nm | Naval | Power | Protein | Red Wine | Yacht |
 | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | -------------| -------------| -------------|
-| **N - Sample Size** | 506 | 1030 | 768 | 8192 | 11934 | 9568 | 45730 | 1588 | 308 |
-| **D - Data Dim.** | 13 | 8 | 8 | 8 | 16 | 4 | 9 | 11 | 6 |
+| **N** | 506 | 1030 | 768 | 8192 | 11934 | 9568 | 45730 | 1588 | 308 |
+| **D** | 13 | 8 | 8 | 8 | 16 | 4 | 9 | 11 | 6 |
 
-</small>
+where **N** is the training sample size and **D** is the data dimensionality.
 
 ## ⚙️ Environment
 We use `conda` package manager to install required python packages. Once `conda is installed`, **run** the following command (while in the root of the repository):
