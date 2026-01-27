@@ -29,3 +29,4 @@ dependencies:
       - seaborn==0.13.2
       - ucimlrepo==0.0.7
       - nbconvert==7.16.6
+      - laplax==0.0.2
