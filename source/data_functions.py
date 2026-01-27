@@ -75,5 +75,5 @@ def generate_x3_data(n_samples, d_dim, min_v=-4, max_v=4, std_err=3, seed=None, 
         x = np.sort(x, axis=0)
     e = rs.normal(0.0, std_err, (n_samples,))
     y_true = (x**3).sum(axis=1)
-    y = y_true + e
-    return x, y, y_true
+    y = (y_true + e)[:, None]
+    return x.astype(np.float32), y.astype(np.float32), y_true
