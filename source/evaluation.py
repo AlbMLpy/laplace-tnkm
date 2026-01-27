@@ -39,3 +39,46 @@ def l2_loss_kl(w_mean, w_std, w_shape, kd, x, y, fmap, gamma_w, beta_e, key, n_s
     
     likelihood_term = jax.vmap(sample_loss)(keys).sum()
     return 0.5 * (likelihood_term + kl_term)
+
+def _check_alpha(alpha):
+    if not(0.0 < alpha < 1.0):
+        raise ValueError("alpha must be in (0, 1)")
+
+def ecp(y_true, y_dist, alpha=0.9) -> float:
+    """
+    Empirical Coverage Probability at level alpha.
+    
+    y_true : (N,) or (N,1)
+    y_dist: (N, S) predictive samples
+    """
+    _check_alpha(alpha)
+    y_true = jnp.squeeze(y_true)
+    lower = jnp.quantile(y_dist, (1 - alpha) / 2.0, axis=1)
+    upper = jnp.quantile(y_dist, 1 - (1 - alpha) / 2.0, axis=1)
+    return jnp.mean((y_true >= lower) & (y_true <= upper))
+
+def wcpi(y_dist, alpha=0.9) -> float:
+    """
+    Mean width of the prediction interval at level alpha.
+    
+    y_dist : (N, S) predictive samples
+    """
+    _check_alpha(alpha)
+    lower = jnp.quantile(y_dist, (1 - alpha) / 2.0, axis=1)
+    upper = jnp.quantile(y_dist, 1 - (1 - alpha) / 2.0, axis=1)
+    return jnp.mean(upper - lower)
+
+def rce(y_true, y_dist, alphas=None) -> float:
+    """
+    Regression Calibration Error (RCE).
+
+    y_true : (N,) or (N,1)
+    y_dist : (N, S) predictive samples
+    """
+    if alphas is None:
+        alphas = jnp.linspace(0.05, 0.95, 19)
+    
+    coverages = jnp.array([
+        ecp(y_true, y_dist, alpha=a) for a in alphas
+    ])
+    return jnp.mean(jnp.abs(coverages - alphas))
