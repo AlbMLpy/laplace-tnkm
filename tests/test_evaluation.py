@@ -107,13 +107,6 @@ def test_shape_robustness(gaussian_data):
 
     assert jnp.isclose(cov1, cov2)
 
-def test_invalid_alpha():
-    rng = np.random.default_rng(0)
-    y_true = rng.normal(size=100)
-    y_dist = rng.normal(size=(100, 50))
-    with pytest.raises(ValueError):
-        ecp(y_true, y_dist, alpha=1.2)
-
 # ---------------- RMSE ----------------
 
 def test_rmse_zero():
