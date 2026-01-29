@@ -6,7 +6,7 @@ from flax import nnx
 from source.models.LaplaceBNN import SimpleNN
 
 FMAP, FSHIFT = 'poly_norm', 0.0
-MODELS = ['la_btn', 'mf_btn', 'sp_btn']
+MODELS = ['la_btn', 'mf_btn', 'sp_btn', 'la_bnn']
 HESS_TYPES = ['last', 'block', 'gauss_newton']
 DATASETS = [
     'yacht', 'energy', 'concrete', 'wine_red', 
