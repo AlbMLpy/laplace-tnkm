@@ -1,5 +1,10 @@
 from typing import Callable
 
+import optax
+from flax import nnx
+
+from source.models.LaplaceBNN import SimpleNN
+
 FMAP, FSHIFT = 'poly_norm', 0.0
 MODELS = ['la_btn', 'mf_btn', 'sp_btn']
 HESS_TYPES = ['last', 'block', 'gauss_newton']
@@ -96,6 +101,41 @@ def get_exp_config_sp_btn(
             n_epoch_vi=N_EPOCH_VI, m_rank=16,
         ),
         par_flexible=dict(rank=RANKS, m_order=M_ORDERS),
+        cv_config=CV_CONFIG | dict(scorer=scorer),
+        data_config=dict(
+            data_path=data_path, n_samples=n_samples, 
+            d_dim=d_dim, test_size=TEST_SIZE, seed=DATA_SEED,
+        ),
+        tqdm_enable=tqdm_enable,
+    )
+
+def get_exp_config_la_bnn(
+    model_cls,
+    n_samples: int,
+    d_dim: int,
+    data_path: str, 
+    hess_type: str, 
+    fmap: tuple, 
+    scorer: Callable,
+    tqdm_enable: bool,
+) -> dict:
+    return dict(
+        model_cls=model_cls,
+        scaler=SCALER,
+        par_fixed=dict(
+            nn_arch=SimpleNN(d_dim, 100, 1, nnx.Rngs(0)),
+            opt=optax.adam(1e-3),
+            batch_size=100,
+            n_epoch=500,
+            beta_e=BETA_E,
+            gamma_w=1e-1,
+            seed=42,
+            curv='full',
+            linearized=True,
+            shuffle=True,
+            verbose=False,
+        ),
+        par_flexible=dict(),
         cv_config=CV_CONFIG | dict(scorer=scorer),
         data_config=dict(
             data_path=data_path, n_samples=n_samples, 
