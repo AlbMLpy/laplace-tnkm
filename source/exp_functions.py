@@ -17,8 +17,8 @@ from sklearn.model_selection import cross_val_score, RepeatedKFold
 
 from .optimization import full_grid
 from .matrix_operations import ten3tovec
-from .evaluation import pll, nll, rmse, norm_frob
 from source.model_functionality import check_zero_cols
+from .evaluation import pll, nll, rmse, norm_frob, ecp, wcpi, rce
 from .general_functions import update_results_dict, extend_results_dict
 
 def ll_scorer(estimator, X, y):
@@ -99,6 +99,18 @@ def prepare_train_model(config: dict, logger=None) -> Callable:
         return model, model_info
     return train_model
 
+def prepare_train_model_simple(config: dict, logger=None):
+    def train_model(x, y):
+        y = y[:, None]
+        model_info = dict()
+        model = model_factory(config['model_cls'], config['par_fixed'], config['scaler'])
+        start_time = time()
+        model.fit(x, y)  
+        elapsed_time = time() - start_time
+        if logger: logger.info(f"##Elapsed time={elapsed_time:.3f}")
+        return model, model_info
+    return train_model
+
 def get_stats_several_trials(
     load_data: Callable,
     train_model: Callable,
@@ -110,12 +122,21 @@ def get_stats_several_trials(
     for trial in tqdm(range(1, n_trials + 1), disable=tqdm_disable):
         if logger: logger.info(f"#Trial {trial}/{n_trials} has started.")
         x_train, x_test, y_train, y_test = load_data(split_seed=trial)
-        x_train, x_test, y_train, y_test = map(jnp.array, [x_train, x_test, y_train, y_test])
+        x_train, x_test, y_train, y_test = map(
+            jnp.array, [x_train, x_test, y_train, y_test])
         model, model_info = train_model_time(train_model, x_train, y_train)
-        tracker.track(trial, x_train, x_test, y_train, y_test, model, model_info)
+        tracker.track(
+            trial, x_train, x_test, y_train, y_test, model, model_info)
 
 class CVTracker:
-    def __init__(self, res_dir, res_name, cv_name, pred_name):
+    def __init__(
+        self, 
+        res_dir, 
+        res_name, 
+        cv_name, 
+        pred_name, 
+        seed: Optional[int] = 13
+    ):
         self.res_dict = defaultdict(list)
         self.extra_dict = defaultdict(list)
         self.predictions = None
@@ -123,10 +144,17 @@ class CVTracker:
         self.res_name = res_name
         self.cv_name = cv_name
         self.pred_name = pred_name
-
+        self.alpha = 0.95
+        self.n_samples_metric = 300
+        self._key = jax.random.PRNGKey(seed)
+ 
     def track(self, trial, x_train, x_test, y_train, y_test, model, model_info):
         ys_train, ys_std_train = model.predict(x_train, return_std=True)
         ys_test, ys_std_test = model.predict(x_test, return_std=True)
+        self._key, subkey = jax.random.split(self._key)
+        eps = jax.random.normal(
+            subkey, shape=(len(y_test), self.n_samples_metric))
+        samples = ys_test[:, None] + eps*ys_std_test[:, None]
 
         update_results_dict(self.res_dict, 
             trial=trial,
@@ -138,10 +166,13 @@ class CVTracker:
             gamma_w=model['model'].gamma_w,
             beta_e=model['model'].beta_e.item(),
             final_rank=model['model'].rank,
+            ecp_test=ecp(y_test, samples, alpha=self.alpha).item(),
+            wcpi_test=wcpi(samples, alpha=self.alpha).item(),
+            rce_test=rce(y_test, samples).item(),
         )
         extend_results_dict(
             self.extra_dict,
-            trial=[trial,]*len(model_info['scores']),
+            trial=[trial,]*len(model_info.get('scores', [])),
             **model_info, 
         )
         if trial == 1:
