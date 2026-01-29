@@ -14,7 +14,7 @@ from configs.uci import (
     HESS_TYPES,
 )
 
-MODEL_HELP = "Choose model: 'all', 'la_btn', 'mf_btn', 'sp_btn';"
+MODEL_HELP = "Choose model: 'all', 'la_btn', 'mf_btn', 'sp_btn', 'la_bnn';"
 PARALLEL_HELP = "Turn on/off parallel mode;"
 N_JOBS_HELP = "How many processes to use for computations;"
 
@@ -30,11 +30,13 @@ def get_options(model, datasets, hess_types):
         return [(model, *v) for v in product(datasets, hess_types)]
     elif model in MODELS:
         datasets = [v for v in datasets if v != 'protein'] # Faster reproducibility
-        return [(model, data, 'mf') for data in datasets]
+        hess = 'full' if model == 'la_bnn' else 'mf'
+        return [(model, data, hess) for data in datasets]
     else:
         raise ValueError(f"Bad model name: {model}")
 
 def run(model_name, data_name, hess_type, fmap, shift):
+    if model_name == 'la_bnn': fmap = 'alt'
     run_str = f"python train_part.py {model_name} {data_name} {hess_type} {fmap} -fsh {shift} -tqdm"
     os.system(run_str)
 
