@@ -65,13 +65,15 @@ def get_exp_config_mf_btn(
     scorer: Callable,
     tqdm_enable: bool,
 ) -> dict:
+    n_loss_samples = 5 if 'protein' in str(data_path) else 30
+    n_epoch = 50 if 'protein' in str(data_path) else GD_EPOCHS
     return dict(
         model_cls=model_cls,
         scaler=SCALER,
         par_fixed=dict(
-            fmap=fmap, n_epoch=GD_EPOCHS, beta_e=BETA_E, gamma_w=GAMMA_W, 
+            fmap=fmap, n_epoch=n_epoch, beta_e=BETA_E, gamma_w=GAMMA_W, 
             seed=13, opt_params={'train_mode': 'adam', 'lr': 2e-3},
-            n_epoch_vi=N_EPOCH_VI,
+            n_epoch_vi=N_EPOCH_VI, n_loss_samples=n_loss_samples,
         ),
         par_flexible=dict(rank=RANKS, m_order=M_ORDERS),
         cv_config=CV_CONFIG | dict(scorer=scorer),
@@ -92,22 +94,13 @@ def get_exp_config_sp_btn(
     scorer: Callable,
     tqdm_enable: bool,
 ) -> dict:
-    return dict(
-        model_cls=model_cls,
-        scaler=SCALER,
-        par_fixed=dict(
-            fmap=fmap, n_epoch=GD_EPOCHS, beta_e=BETA_E, gamma_w=GAMMA_W, 
-            seed=13, opt_params={'train_mode': 'adam', 'lr': 2e-3},
-            n_epoch_vi=N_EPOCH_VI, m_rank=16,
-        ),
-        par_flexible=dict(rank=RANKS, m_order=M_ORDERS),
-        cv_config=CV_CONFIG | dict(scorer=scorer),
-        data_config=dict(
-            data_path=data_path, n_samples=n_samples, 
-            d_dim=d_dim, test_size=TEST_SIZE, seed=DATA_SEED,
-        ),
-        tqdm_enable=tqdm_enable,
+    config = get_exp_config_mf_btn(
+        model_cls, n_samples, d_dim, data_path, 
+        hess_type, fmap, scorer, tqdm_enable,
     )
+    config['par_fixed']['m_rank'] = 16
+    return config
+
 
 def get_exp_config_la_bnn(
     model_cls,
