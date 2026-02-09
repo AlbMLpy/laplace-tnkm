@@ -1,4 +1,4 @@
-Linearized Laplace Approximation in Bayesian Tensor Network Kernel Machines
+Laplace Approximation for Bayesian Tensor Network Kernel Machines
 =====
 
 ## ✨ Project Description
