@@ -401,3 +401,65 @@ def process_weights(w_ten: Array) -> tuple[Array, ArrayLike]:
     if w_ten.shape[-1] < 1: 
         raise ValueError(f'Zero Rank! W shape: {w_ten.shape}')
     return w_ten, w_ten.shape
+
+### T-KRR functions ###
+
+@jit
+def get_ww_hadamard_mtx(w_ten: Array) -> Array:
+    ww_hadamard = 1.0
+    for wk in w_ten: ww_hadamard *= wk.T.conj().dot(wk)
+    return ww_hadamard
+
+@partial(jit, static_argnums=(1, 4,))
+def update_weights_reg_w(
+    w_ten: Array, 
+    w_shape: ArrayLike, 
+    x: Array, 
+    y: Array, 
+    fmap: FeatureMap, 
+    alpha: float, 
+    fw_hadamard: Array,
+    ww_hadamard: Array,
+) -> tuple[Array, Array]:
+    """ 
+    Full update of all the model's CPD cores (one sweep/epoch).
+    Regularization w.r.t. the full tensor W is used here.
+    """
+    d_dim, m_order, rank = w_shape
+    upd_sequence = list(range(d_dim)) + list(reversed(range(1, d_dim-1)))
+    for ind in upd_sequence:
+        wk, fk_mtx = w_ten[ind], fmap(x[:, ind], None)
+        fw_hadamard /= (fk_mtx.dot(wk) + 1e-14)
+        ww_hadamard /= wk.T.conj().dot(wk) 
+        # Solve linear system:
+        A, b = prepare_system(fk_mtx, fw_hadamard, y)
+        A += alpha * jnp.diag(jnp.diagonal(jnp.kron(ww_hadamard, np.eye(m_order))))
+        sol = jnp.linalg.solve(A, b)
+        wk = jnp.array(sol.reshape(m_order, rank, order='F')) # Fortran Order
+        w_ten = w_ten.at[ind].set(wk)
+        # Postprocess:
+        fw_hadamard *= fk_mtx.dot(wk)
+        ww_hadamard *= wk.T.conj().dot(wk)
+    return w_ten, fw_hadamard, ww_hadamard
+
+def als_cpd_reg_w(
+    x: np.ndarray, 
+    y: np.ndarray,
+    m_order: int,
+    fmap: FeatureMap,
+    rank: int,
+    init_type: str,
+    n_epoch: int,
+    alpha: float,
+    seed: Optional[int] = None,
+    dtype: np.dtype = np.float64,
+) -> tuple[np.ndarray, int]:
+    d_dim = x.shape[-1]
+    w_ten, kd = init_weights(m_order, rank, d_dim, None, init_type, seed, dtype)
+    fw_hadamard = get_fw_hadamard_mtx(x, kd, w_ten, fmap)
+    ww_hadamard = get_ww_hadamard_mtx(w_ten)
+    for ep in range(n_epoch):
+        w_ten, fw_hadamard, ww_hadamard = update_weights_reg_w(
+            w_ten, w_ten.shape, x, y, fmap, alpha, fw_hadamard, ww_hadamard
+        )
+    return w_ten, kd
