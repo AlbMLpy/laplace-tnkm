@@ -168,7 +168,7 @@ class LaplaceCPR(RegressorMixin, BaseEstimator):
         self.beta_e, self.upd_beta_e, self.cn, self.dn = init_beta_e(beta_e)
         self.gamma_w, self.upd_gamma_w, self.an, self.bn = init_gamma_w(gamma_w)
 
-    def fit(self, X, y, xy_test: Optional[tuple] = None):
+    def fit(self, X, y, xy_test=None, w_ten=None):
         """
         Fit Bayesian tensor network kernel machine.
 
@@ -201,6 +201,7 @@ class LaplaceCPR(RegressorMixin, BaseEstimator):
             self.seed, 
             self._dtype
         )
+        if w_ten is not None: self.w_ten = w_ten
         self.w_shape = self.w_ten.shape
         # VI training loop:
         for ep_g in range(self.n_epoch_vi):
