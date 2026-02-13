@@ -64,6 +64,28 @@ def gaussian_kernel_features(
     sd = jnp.sqrt(2 * jnp.pi) * lscale * jnp.exp(-(lscale * w_scaled)**2 / 2)
     return jnp.sqrt(sd / domain_bound) * jnp.sin(jnp.outer(x + domain_bound, w_scaled)) 
 
+@partial(jit, static_argnums=[2, 3]) 
+def rbf_features(
+    x: ArrayLike, 
+    q: int, # Dummy
+    order: int, 
+    lscale: float = 1
+): 
+    """
+    RBF features matrix for x.
+
+    References: 
+        - "Large-Scale Learning with Fourier Features 
+            and Tensor Decompositions", Frederiek Wesel, Kim Batselier.
+    """
+    x = (x + 0.5) / 2.0 
+    w = jnp.arange(1, order + 1) 
+    sd = (
+        jnp.sqrt(2 * jnp.pi) * lscale
+        * jnp.exp(-((jnp.pi * w / 2) ** 2) * (lscale ** 2) / 2) 
+    )
+    return jnp.sin(jnp.pi * jnp.outer(x, w)) * jnp.sqrt(sd)
+
 @partial(jit, static_argnums=[2,])
 def fourier_features(x: ArrayLike, q: int, m_order: int, p_scale: float = 1) -> Array:
     """ 
@@ -125,7 +147,7 @@ def prepare_fmap(fmap_spec: Feature, m_order: int, is_quant: bool):
         elif fmap_spec.name == 'ppnf':
             fmap, dtype = partial(poli_norm_features, order=m_order), jnp.float64
         elif fmap_spec.name == 'rbff':
-            fmap = partial(gaussian_kernel_features, order=m_order, lscale=fmap_spec.l_scale)
+            fmap = partial(rbf_features, order=m_order, lscale=fmap_spec.l_scale)
             dtype = jnp.float64
         elif fmap_spec.name == 'ff':
             fmap = partial(fourier_features, m_order=m_order, p_scale=fmap_spec.p_scale)
