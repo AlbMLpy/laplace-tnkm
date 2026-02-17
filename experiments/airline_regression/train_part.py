@@ -78,7 +78,7 @@ def get_stats_several_trials(
         st_time = time()
         w_tkrr, _ = als_cpd_reg_w(
             x, y, config.m_order, fmap, config.rank, config.init_type, 
-            config.n_epoch_tkrr, config.gamma_w, model_seed,
+            config.n_epoch_tkrr, config.alpha, model_seed,
         )
         w_tkrr.block_until_ready()
         time_tkrr = time() - st_time
@@ -130,10 +130,12 @@ if __name__ == '__main__':
     # Get parameters and prepare dir:
     args = argparse_airline()
     n_sample, rank = int(args.n_sample), int(args.rank)
+    gamma_w = 100/n_sample
+    if n_sample > 100000: gamma_w = 0.1
     res_dir = get_res_dir(args)
     create_dir_if_not_exists(res_dir)
     # Prepare config:
-    config = Config(rank=rank, gamma_w=100/n_sample)
+    config = Config(rank=rank, gamma_w=gamma_w, alpha=100/n_sample)
     # Define metrics tracker:
     tracker = Tracker(res_dir, config.res_name)
     # Define data loader:

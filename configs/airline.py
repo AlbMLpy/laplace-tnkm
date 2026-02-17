@@ -13,6 +13,7 @@ class Config:
     scaler: str = 'minmax'
     rank: Optional[int] = None # To be defined during run time
     gamma_w: Optional[float] = None # To be defined during run time
+    alpha: Optional[float] = None # To be defined during run time
     m_order: int = 40
     init_type: str = 'k_mtx'
     beta_e: Optional[float] = None
