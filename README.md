@@ -7,7 +7,7 @@
 [ArXiv](https://arxiv.org/abs/2604.26673) | [Experiments](https://github.com/AlbMLpy/laplace-tnkm/tree/main#-how-to-reproduce-the-numerical-experiments)
 
 <p align="center">
-  <a href="https://arxiv.org/abs/2604.26673"><img src="assets/compare_hess.png?raw=True" alt="Figure 1" width="70%"></a>
+  <a href="https://arxiv.org/abs/2604.26673"><img src="assets/compare_hess.png?raw=True" alt="Figure 1" width="90%"></a>
 </p>
 
 **Figure 1:** Test NLL performance of LA-TNKM with Linearized Laplace Approximation (LLA) under different Hessian approximations, as a function of the thresholding hyperparameter $\hat{t}$ (log-scale, normalized by the largest Hessian eigenvalue). Results across real-world datasets show that performance is sensitive to the Hessian approximation, while the Last and Block variants are most consistently strong on average.
